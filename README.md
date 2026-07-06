@@ -9,14 +9,18 @@ into a week of different dinners.
 - **Discover** — Tinder-style card deck of nearby cooks *and* open supper groups. Right-swipe
   a cook → match if mutual; right-swipe a group → join it. Cards show the main photo (person
   or dish), advertised dishes with portion counts, and dietary-constraint pills.
-- **Groups** — your supper groups: members + this week's dishes, a "seeking members" toggle,
-  and group-to-group **merge**. Groups start at 2 people (a match can seed one); you can be a
-  solo member of many groups.
+- **Groups** — your supper groups: members + this week's dishes, **table-talk group chat**
+  (live over Supabase Realtime when synced), a "seeking members" toggle, group-to-group
+  **merge**, and leave-group. Groups start at 2 people (a match can seed one); you can be a
+  solo member of many groups. Matches get their own section with a start-a-group shortcut.
 - **Likes** — the paid tier. Free users see a blurred grid + count; **VillageFeed Plus**
   (StoreKit 2 subscription, `app.villagefeed.plus.monthly`, simulator-testable via
   `Products.storekit`) reveals everyone who swiped right on you.
 - **Profile** — name/neighborhood/bio, photo picker (use yourself or a dish as the main
-  photo), dietary pills, dish advertising, and submit-for-review.
+  photo), dietary pills, dish advertising with **photos, blurbs, portions, and allergen
+  notes** (images downscaled to 1200px JPEG before upload), submit-for-review, an in-app
+  privacy & safety explainer (full policy in `docs/privacy-policy.md`), and **account
+  deletion** via the `delete-account` edge function (App Store 5.1.1(v)).
 - **Moderation** — report → instant freeze → review queue. Queue items can be triaged by the
   Claude API (`claude-haiku-4-5`) or resolved directly by a human (no API cost). See
   `SAFETY-NOTES.md` for the launch-blocking safety list.
