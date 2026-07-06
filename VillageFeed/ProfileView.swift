@@ -9,6 +9,7 @@ struct ProfileView: View {
     @State private var newDishEmoji = "🍲"
     @State private var newDishAllergens = ""
     @State private var addingDish = false
+    @State private var confirmingDeletion = false
 
     var body: some View {
         @Bindable var store = store
@@ -113,6 +114,9 @@ struct ProfileView: View {
                         Button("Sign out", role: .destructive) {
                             Task { await auth.signOut() }
                         }
+                        Button("Delete account…", role: .destructive) {
+                            confirmingDeletion = true
+                        }
                     } else {
                         Text("Demo mode — no account. Configure Supabase to enable sign-in.")
                             .font(.caption)
@@ -154,6 +158,18 @@ struct ProfileView: View {
                 Button("Cancel", role: .cancel) { newDishName = ""; newDishAllergens = "" }
             } message: {
                 Text("Declare allergens honestly — your neighbors rely on it. Dish photos come from the photo picker above.")
+            }
+            .confirmationDialog("Delete your account?", isPresented: $confirmingDeletion, titleVisibility: .visible) {
+                Button("Delete everything", role: .destructive) {
+                    Task {
+                        if await auth.deleteAccount() {
+                            store.wipeLocalState()
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your profile, dishes, groups, messages, and matches are permanently deleted from VillageFeed. This cannot be undone.")
             }
             .onChange(of: photoItem) {
                 Task {

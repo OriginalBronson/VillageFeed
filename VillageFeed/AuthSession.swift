@@ -99,6 +99,21 @@ final class AuthSession {
         try? await client.auth.signOut()
     }
 
+    /// Deletes the server-side account via the delete-account edge function,
+    /// then signs out locally. Returns false if the server deletion failed.
+    func deleteAccount() async -> Bool {
+        guard let client else { return false }
+        lastError = nil
+        do {
+            try await client.functions.invoke("delete-account")
+            try? await client.auth.signOut()
+            return true
+        } catch {
+            lastError = "Account deletion failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     // MARK: - Web auth plumbing
 
     private static let webAuthContext = WebAuthContext()

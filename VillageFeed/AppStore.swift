@@ -90,6 +90,32 @@ final class AppStore {
         max(likedMe.count, remoteLikedMeCount ?? 0)
     }
 
+    /// Wipes all local state back to the seeded demo world (used after account deletion).
+    func wipeLocalState() {
+        try? FileManager.default.removeItem(at: Persistence.defaultURL)
+        let seed = AppStore.seedPeople()
+        me = UserProfile(
+            name: "You",
+            neighborhood: "Maplewood",
+            bio: "",
+            photo: .placeholder(emoji: "🧑‍🍳", hue: 0.58),
+            dietaryTags: [],
+            dishes: []
+        )
+        people = seed
+        groups = AppStore.seedGroups(people: seed)
+        swipedIDs = []
+        matchedIDs = []
+        blockedIDs = []
+        reviewQueue = []
+        messages = []
+        reportDates = []
+        remoteLikedMeCount = nil
+        lastSwipedCard = nil
+        sync = nil
+        rebuildDeck()
+    }
+
     func persist() {
         guard persistedToDisk else { return }
         Persistence.save(PersistedState(

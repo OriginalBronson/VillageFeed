@@ -7,6 +7,7 @@ struct DiscoverView: View {
     @State private var joinedGroup: MealGroup?
     @State private var reporting: DeckCard?
     @State private var reportLimitHit = false
+    @State private var detailPerson: UserProfile?
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,11 @@ struct DiscoverView: View {
                                 .overlay(alignment: .topTrailing) {
                                     if index == 0 { stamp("PASS", color: .red, show: dragOffset.width < -40) }
                                 }
+                                .onTapGesture {
+                                    if index == 0, case .person(let person) = card {
+                                        detailPerson = person
+                                    }
+                                }
                                 .gesture(index == 0 ? dragGesture(for: card) : nil)
                         }
                     }
@@ -48,6 +54,9 @@ struct DiscoverView: View {
         }
         .sheet(item: $match) { person in
             MatchSheet(person: person)
+        }
+        .sheet(item: $detailPerson) { person in
+            PersonDetailSheet(person: person)
         }
         .alert("You joined \(joinedGroup?.name ?? "")!", isPresented: Binding(
             get: { joinedGroup != nil }, set: { if !$0 { joinedGroup = nil } }
@@ -174,6 +183,67 @@ struct DiscoverView: View {
         case .joinedGroup(let group): joinedGroup = group
         case .none: break
         }
+    }
+}
+
+struct PersonDetailSheet: View {
+    let person: UserProfile
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                PhotoView(photo: person.photo, height: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+
+                HStack {
+                    Text(person.name).font(.largeTitle.bold())
+                    Spacer()
+                    Label(person.neighborhood, systemImage: "mappin.and.ellipse")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(person.bio).font(.body)
+
+                if !person.dietaryTags.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Dietary needs").font(.headline)
+                        PillRow(tags: person.dietaryTags)
+                    }
+                }
+
+                if !person.dishes.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Dishes on offer").font(.headline)
+                        ForEach(person.dishes) { dish in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(dish.emoji).font(.title3)
+                                    Text(dish.name).font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Text("\(dish.portions) portions")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if !dish.blurb.isEmpty {
+                                    Text(dish.blurb).font(.caption).foregroundStyle(.secondary)
+                                }
+                                if !dish.allergenNote.isEmpty {
+                                    Label(dish.allergenNote, systemImage: "exclamationmark.triangle")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary.opacity(0.4)))
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 }
 

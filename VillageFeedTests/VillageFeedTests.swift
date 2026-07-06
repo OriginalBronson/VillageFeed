@@ -279,6 +279,20 @@ struct VillageFeedTests {
         #expect(personCards.prefix(maplewoodCount).allSatisfy { $0.neighborhood == "Maplewood" })
     }
 
+    @Test func wipeLocalStateReturnsToSeedWorld() {
+        let store = AppStore(persisted: false)
+        store.join(store.groups[0])
+        store.swipe(store.deck.first!, liked: true)
+        store.sendMessage("hi", in: store.groups[0])
+        store.wipeLocalState()
+        #expect(store.myGroups.isEmpty)
+        #expect(store.swipedIDs.isEmpty)
+        #expect(store.messages.isEmpty)
+        #expect(store.matchedIDs.isEmpty)
+        #expect(!store.deck.isEmpty) // seeded deck is back
+        #expect(store.me.dishes.isEmpty)
+    }
+
     @Test func newProfileSubmissionGoesThroughReview() {
         let store = AppStore(persisted: false)
         store.submitMyProfileForReview()
