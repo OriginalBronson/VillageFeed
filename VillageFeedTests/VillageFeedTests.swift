@@ -251,6 +251,34 @@ struct VillageFeedTests {
         #expect(store.blockedIDs.contains(last.id))
     }
 
+    @Test func undoRestoresPassedCardButNotMatches() {
+        let store = AppStore(persisted: false)
+        let nonLiker = store.people.first { !$0.likesYou }!
+        store.swipe(.person(nonLiker), liked: false)
+        #expect(!store.deck.contains { $0.id == nonLiker.id })
+        store.undoLastSwipe()
+        #expect(store.deck.first?.id == nonLiker.id)
+        #expect(!store.swipedIDs.contains(nonLiker.id))
+
+        // A swipe that produced a match is not undoable
+        let liker = store.people.first { $0.likesYou }!
+        store.swipe(.person(liker), liked: true)
+        store.undoLastSwipe()
+        #expect(!store.deck.contains { $0.id == liker.id })
+        #expect(store.matches.contains(liker))
+    }
+
+    @Test func deckPutsMyNeighborhoodFirst() {
+        let store = AppStore(persisted: false)
+        // Me is in Maplewood; the first person cards should all be Maplewood cooks
+        let personCards = store.deck.compactMap { card -> UserProfile? in
+            if case .person(let p) = card { return p }
+            return nil
+        }
+        let maplewoodCount = personCards.filter { $0.neighborhood == "Maplewood" }.count
+        #expect(personCards.prefix(maplewoodCount).allSatisfy { $0.neighborhood == "Maplewood" })
+    }
+
     @Test func newProfileSubmissionGoesThroughReview() {
         let store = AppStore(persisted: false)
         store.submitMyProfileForReview()

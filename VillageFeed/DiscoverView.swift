@@ -85,7 +85,19 @@ struct DiscoverView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 40) {
+        HStack(spacing: 32) {
+            Button {
+                withAnimation { store.undoLastSwipe() }
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.title3)
+                    .foregroundStyle(store.lastSwipedCard == nil ? .gray : .blue)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(.background).shadow(radius: 2))
+            }
+            .disabled(store.lastSwipedCard == nil)
+            .accessibilityLabel("Undo last swipe")
+
             Button {
                 if let top = store.deck.first { commit(top, liked: false) }
             } label: {

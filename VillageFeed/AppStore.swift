@@ -101,8 +101,30 @@ final class AppStore {
 
     private func rebuildDeck() {
         let hidden = Set(swipedIDs).union(blockedIDs)
-        deck = people.filter { $0.status == .active && !hidden.contains($0.id) }.map { .person($0) }
+        let nearby = people
+            .filter { $0.status == .active && !hidden.contains($0.id) }
+            .sorted { a, b in
+                // Same-neighborhood cooks surface first; stable within each bucket.
+                (a.neighborhood == me.neighborhood ? 0 : 1) < (b.neighborhood == me.neighborhood ? 0 : 1)
+            }
+        deck = nearby.map { .person($0) }
             + groups.filter { $0.seekingMembers && !hidden.contains($0.id) && !$0.memberIDs.contains(me.id) }.map { .group($0) }
+    }
+
+    // MARK: - Undo
+
+    private(set) var lastSwipedCard: DeckCard?
+
+    /// Restores the most recently swiped card to the top of the deck. Matches and
+    /// group joins stand (undo only rescues pass/like mistakes before an outcome).
+    func undoLastSwipe() {
+        guard let card = lastSwipedCard else { return }
+        lastSwipedCard = nil
+        guard !matchedIDs.contains(card.id),
+              !myGroups.contains(where: { $0.id == card.id }) else { return }
+        swipedIDs.removeAll { $0 == card.id }
+        deck.insert(card, at: 0)
+        persist()
     }
 
     // MARK: - Discovery
@@ -123,6 +145,7 @@ final class AppStore {
     func swipe(_ card: DeckCard, liked: Bool) -> SwipeOutcome {
         deck.removeAll { $0.id == card.id }
         swipedIDs.append(card.id)
+        lastSwipedCard = card
         if case .person = card {
             let sync = sync
             Task { await sync?.recordSwipe(targetID: card.id, kind: "person", liked: liked) }
