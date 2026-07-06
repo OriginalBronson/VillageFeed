@@ -7,6 +7,15 @@ enum SwipeOutcome: Equatable {
     case joinedGroup(MealGroup)
 }
 
+// Signed-in accounts don't enter the app until "me" is presentable: fresh
+// signups run the profile-creation wizard first, returning users hydrate from
+// the server. Demo mode always ships with a complete seeded profile.
+enum ProfileReadiness: Equatable {
+    case unknown     // waiting on the server row after sign-in
+    case needsSetup  // server row is bare — run ProfileSetupView
+    case ready
+}
+
 @MainActor
 @Observable
 final class AppStore {
@@ -20,6 +29,7 @@ final class AppStore {
     var reviewQueue: [ReviewCase] = []
     var messages: [GroupMessage] = []
     var reportDates: [Date] = []
+    var profileReadiness: ProfileReadiness = .ready
 
     // Set when signed in against a configured Supabase backend; all writes are
     // mirrored best-effort, and pulls replace the seeded neighborhood.
@@ -31,6 +41,15 @@ final class AppStore {
     var remoteLikedMeCount: Int?
 
     private let persistedToDisk: Bool
+
+    // The demo identity. These exact values double as sentinels: the profile
+    // setup wizard blanks any field still carrying them so seed junk never
+    // prefills — or gets pushed to — a real account.
+    static let seedMeName = "You"
+    static let seedMeNeighborhood = "Maplewood"
+    static let seedMeBio = "Big-batch cook looking to eat something other than my own lasagna five nights running."
+    static let seedMeTags: [DietaryTag] = [.highProtein]
+    static let seedMeDish = Dish(name: "Classic Lasagna", emoji: "🍝", blurb: "Family recipe, feeds an army", portions: 8)
 
     init(persisted: Bool = true) {
         persistedToDisk = persisted
@@ -47,12 +66,12 @@ final class AppStore {
         } else {
             let seed = AppStore.seedPeople()
             me = UserProfile(
-                name: "You",
-                neighborhood: "Maplewood",
-                bio: "Big-batch cook looking to eat something other than my own lasagna five nights running.",
+                name: AppStore.seedMeName,
+                neighborhood: AppStore.seedMeNeighborhood,
+                bio: AppStore.seedMeBio,
                 photo: .placeholder(emoji: "🧑‍🍳", hue: 0.58),
-                dietaryTags: [.highProtein],
-                dishes: [Dish(name: "Classic Lasagna", emoji: "🍝", blurb: "Family recipe, feeds an army", portions: 8)]
+                dietaryTags: AppStore.seedMeTags,
+                dishes: [AppStore.seedMeDish]
             )
             people = seed
             groups = AppStore.seedGroups(people: seed)
@@ -91,13 +110,100 @@ final class AppStore {
         max(likedMe.count, remoteLikedMeCount ?? 0)
     }
 
+    // MARK: - Profile creation & hydration
+
+    static func isProfileComplete(_ profile: UserProfile) -> Bool {
+        !profile.name.trimmingCharacters(in: .whitespaces).isEmpty
+            && !profile.neighborhood.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    // The untouched demo identity passes isProfileComplete, but it still
+    // carries the seed name — it never counts as a profile someone created.
+    static func looksLikeRealProfile(_ profile: UserProfile) -> Bool {
+        isProfileComplete(profile) && profile.name != seedMeName
+    }
+
+    /// Reconciles "me" with the server row fetched right after sign-in.
+    /// nil means the fetch failed (offline) — fall back to local state so an
+    /// established user is never locked out of the app.
+    func applyMyRemoteProfile(_ remote: UserProfile?) {
+        guard let remote else {
+            if Self.looksLikeRealProfile(me) {
+                profileReadiness = .ready
+            } else {
+                prepareForProfileSetup(remoteName: nil)
+            }
+            return
+        }
+        if Self.isProfileComplete(remote) {
+            hydrate(from: remote)
+        } else if Self.looksLikeRealProfile(me) {
+            // Setup finished here but the push never landed (offline submit) —
+            // the server is behind, not the user. Re-push instead of
+            // re-running the wizard.
+            profileReadiness = .ready
+            let sync = sync
+            let profile = me
+            Task { await sync?.pushProfile(profile) }
+        } else {
+            prepareForProfileSetup(remoteName: remote.name)
+        }
+    }
+
+    /// Blanks any field still carrying its exact seed-demo value so the wizard
+    /// starts clean, while keeping anything typed during demo mode. The name
+    /// can be prefilled from the server row (Google sign-in supplies full_name
+    /// via the signup trigger).
+    func prepareForProfileSetup(remoteName: String?) {
+        if me.name == Self.seedMeName { me.name = "" }
+        if me.name.isEmpty, let remoteName, !remoteName.isEmpty { me.name = remoteName }
+        if me.neighborhood == Self.seedMeNeighborhood { me.neighborhood = "" }
+        if me.bio == Self.seedMeBio { me.bio = "" }
+        if me.dietaryTags == Self.seedMeTags { me.dietaryTags = [] }
+        me.dishes.removeAll { $0.name == Self.seedMeDish.name && $0.blurb == Self.seedMeDish.blurb }
+        profileReadiness = .needsSetup
+        persist()
+    }
+
+    /// Adopts the server copy of my profile (returning user, new device).
+    private func hydrate(from remote: UserProfile) {
+        me.name = remote.name
+        me.neighborhood = remote.neighborhood
+        me.bio = remote.bio
+        me.dietaryTags = remote.dietaryTags
+        // A locally approved profile stays active — the prototype's review
+        // queue resolves locally and clients can't write status server-side,
+        // so remote rows sit at pendingReview. Frozen/banned always wins.
+        if !(remote.status == .pendingReview && me.status == .active) {
+            me.status = remote.status
+        }
+        if case .remote = remote.photo {
+            me.photo = remote.photo
+        }
+        if !remote.dishes.isEmpty {
+            me.dishes = remote.dishes
+        }
+        profileReadiness = .ready
+        persist()
+    }
+
+    /// Finishes the creation wizard: normalizes the drafted fields and submits
+    /// for review (new profiles go through moderation before Discover).
+    func completeProfileSetup() {
+        me.name = me.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        me.neighborhood = me.neighborhood.trimmingCharacters(in: .whitespacesAndNewlines)
+        me.bio = me.bio.trimmingCharacters(in: .whitespacesAndNewlines)
+        profileReadiness = .ready
+        submitMyProfileForReview()
+    }
+
     /// Wipes all local state back to the seeded demo world (used after account deletion).
     func wipeLocalState() {
         try? FileManager.default.removeItem(at: Persistence.defaultURL)
         let seed = AppStore.seedPeople()
         me = UserProfile(
-            name: "You",
-            neighborhood: "Maplewood",
+            name: AppStore.seedMeName,
+            neighborhood: AppStore.seedMeNeighborhood,
             bio: "",
             photo: .placeholder(emoji: "🧑‍🍳", hue: 0.58),
             dietaryTags: [],
@@ -112,6 +218,7 @@ final class AppStore {
         messages = []
         reportDates = []
         remoteLikedMeCount = nil
+        profileReadiness = .ready
         lastSwipedCard = nil
         sync = nil
         rebuildDeck()
