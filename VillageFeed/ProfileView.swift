@@ -124,6 +124,12 @@ struct ProfileView: View {
                     }
                 }
 
+                Section("About") {
+                    NavigationLink("Privacy & safety") {
+                        PrivacySheet()
+                    }
+                }
+
                 Section("Moderation") {
                     NavigationLink {
                         ModerationView()
@@ -182,7 +188,42 @@ struct ProfileView: View {
     }
 
     private var statusBadge: some View {
-        let (text, color): (String, Color) = switch store.me.status {
+        StatusBadge(status: store.me.status)
+    }
+}
+
+struct PrivacySheet: View {
+    var body: some View {
+        List {
+            Section("Your data") {
+                Text("Your card — name, neighborhood, bio, photo, dishes, and dietary pills — is visible to other signed-in users. Dietary needs can reveal health or religious information; share only what you're comfortable showing neighbors.")
+                Text("We never collect your precise location. Neighborhood is whatever label you type.")
+            }
+            Section("Moderation") {
+                Text("Reported or newly submitted profiles are reviewed by an AI safety check (Anthropic Claude) and may be read by a human moderator. Reporting freezes a profile instantly while it's reviewed.")
+            }
+            Section("Food safety") {
+                Text("Meals are home-cooked and uninspected. Declare allergens honestly, ask about them before eating, and hand off in public places until you trust your group.")
+            }
+            Section("Deletion") {
+                Text("Profile → Account → Delete account permanently removes everything from our servers, and wipes this device.")
+            }
+            Section("Full policy") {
+                Text("The complete privacy policy ships with the repository (docs/privacy-policy.md) and will be hosted before App Store release.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Privacy & safety")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct StatusBadge: View {
+    let status: ProfileStatus
+
+    var body: some View {
+        let (text, color): (String, Color) = switch status {
         case .active: ("Active", .green)
         case .pendingReview: ("Pending review", .orange)
         case .frozen: ("Frozen", .blue)
