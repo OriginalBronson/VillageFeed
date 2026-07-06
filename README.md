@@ -21,8 +21,21 @@ into a week of different dinners.
   Claude API (`claude-haiku-4-5`) or resolved directly by a human (no API cost). See
   `SAFETY-NOTES.md` for the launch-blocking safety list.
 
-Data is seeded in-memory (`AppStore.swift`) — the store is the seam where a backend
-(Supabase or similar) slots in later.
+## Backend (Supabase)
+
+- **Auth**: email/password + **Sign in with Google** (Supabase OAuth via
+  `ASWebAuthenticationSession`, callback `villagefeed://auth-callback`). With
+  `SupabaseConfig.swift` unfilled the app runs in demo mode on seeded data.
+- **Schema**: `supabase/migrations/0001_init.sql` — profiles, dishes, groups +
+  membership, swipes, matches, blocks, reports, review queue; RLS on every
+  table; report trigger freezes the subject server-side; photos bucket.
+- **Sync**: `SyncService.swift` pulls the neighborhood (profiles/dishes/groups)
+  and mirrors swipes, matches, blocks, reports, and group actions. Local JSON
+  persistence (`Persistence.swift`) keeps state across relaunches either way.
+- **Moderation**: `supabase/functions/moderate-profile` runs the AI triage
+  server-side with a secret key; the in-app key path remains for local dev.
+- **Setup**: `DISPATCH.md` is the browser runbook (Supabase project, Google
+  OAuth client, provider config, secrets) plus the morning terminal checklist.
 
 ## Build & test
 
