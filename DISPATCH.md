@@ -66,15 +66,21 @@ Produce one block containing:
 - Confirmation that: migration ran clean, Google provider is enabled,
   redirect URL added, ANTHROPIC_API_KEY secret set.
 
+## 7. Record the summary durably
+
+Open https://github.com/OriginalBronson/VillageFeed/issues/new (sign into
+GitHub as OriginalBronson if needed), title the issue
+**"Dispatch results: Supabase + Google setup"**, paste the section-6 summary
+**minus the database password and any secret values** (those go only in the
+direct reply to Bronson — never into the issue), and submit.
+
 ## Not for dispatch — Bronson's local terminal (morning checklist)
 
 ```sh
 cd ~/Desktop/VillageFeed
-# 1. Create the private GitHub repo and push (agent was not permitted to):
-gh repo create VillageFeed --private --source . --push
-# 2. Paste the Supabase URL + anon key from dispatch's summary into
-#    VillageFeed/SupabaseConfig.swift, then rebuild.
-# 3. Deploy the moderation function (needs Supabase CLI: brew install supabase/tap/supabase):
+# 1. Paste the Supabase URL + anon key from dispatch's summary into
+#    VillageFeed/SupabaseConfig.swift, rebuild, then commit + push.
+# 2. Deploy the moderation function (needs Supabase CLI: brew install supabase/tap/supabase):
 supabase link --project-ref <ref>
 supabase functions deploy moderate-profile
 ```
