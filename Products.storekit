@@ -1,0 +1,60 @@
+{
+  "identifier" : "VF00000000",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "VF21000001",
+      "localizations" : [
+
+      ],
+      "name" : "VillageFeed Plus",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "3.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "VF21000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "See everyone who wants to trade with you",
+              "displayName" : "VillageFeed Plus",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "app.villagefeed.plus.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Plus Monthly",
+          "subscriptionGroupID" : "VF21000001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

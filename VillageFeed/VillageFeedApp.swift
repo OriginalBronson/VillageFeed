@@ -1,0 +1,88 @@
+import SwiftUI
+
+@main
+struct VillageFeedApp: App {
+    @State private var store = AppStore()
+    @State private var entitlements = EntitlementStore()
+    @AppStorage("hasOnboarded") private var hasOnboarded = false
+
+    var body: some Scene {
+        WindowGroup {
+            Group {
+                if hasOnboarded {
+                    RootView()
+                } else {
+                    OnboardingView(done: $hasOnboarded)
+                }
+            }
+            .environment(store)
+            .environment(entitlements)
+            .task { await entitlements.start() }
+        }
+    }
+}
+
+struct RootView: View {
+    var body: some View {
+        TabView {
+            DiscoverView()
+                .tabItem { Label("Discover", systemImage: "hand.draw") }
+            GroupsView()
+                .tabItem { Label("Groups", systemImage: "person.3") }
+            LikesView()
+                .tabItem { Label("Likes", systemImage: "heart") }
+            ProfileView()
+                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+        }
+        .tint(Color(hue: 0.09, saturation: 0.85, brightness: 0.85))
+    }
+}
+
+struct OnboardingView: View {
+    @Binding var done: Bool
+    @State private var page = 0
+
+    private let pages: [(emoji: String, title: String, sub: String)] = [
+        ("🍝", "Make one dish, eat many.", "Cook one big batch, trade portions with neighbors, and eat a different dinner every night."),
+        ("🫕", "Cook once, eat all week.", "One lasagna becomes seven dinners when your village cooks with you."),
+        ("🏘️", "Your table, multiplied.", "Swipe to find cooks and supper groups near you. Groups start at just two people.")
+    ]
+
+    var body: some View {
+        VStack {
+            TabView(selection: $page) {
+                ForEach(pages.indices, id: \.self) { i in
+                    VStack(spacing: 20) {
+                        Text(pages[i].emoji).font(.system(size: 96))
+                        Text(pages[i].title)
+                            .font(.largeTitle.bold())
+                            .multilineTextAlignment(.center)
+                        Text(pages[i].sub)
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                    .tag(i)
+                }
+            }
+            .tabViewStyle(.page)
+
+            Button {
+                if page < pages.count - 1 {
+                    withAnimation { page += 1 }
+                } else {
+                    done = true
+                }
+            } label: {
+                Text(page < pages.count - 1 ? "Next" : "Find my village")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+}
