@@ -23,6 +23,10 @@ final class AppStore {
     // mirrored best-effort, and pulls replace the seeded neighborhood.
     @ObservationIgnored var sync: SyncService?
 
+    // Server-provided count of people who liked me (free tier sees the number,
+    // Plus sees identities). Nil in demo mode.
+    var remoteLikedMeCount: Int?
+
     private let persistedToDisk: Bool
 
     init(persisted: Bool = true) {
@@ -70,8 +74,13 @@ final class AppStore {
         groups = snapshot.groups
         swipedIDs = snapshot.swipedIDs
         blockedIDs = snapshot.blockedIDs
+        remoteLikedMeCount = snapshot.likedMeCount
         rebuildDeck()
         persist()
+    }
+
+    var likedMeCount: Int {
+        max(likedMe.count, remoteLikedMeCount ?? 0)
     }
 
     func persist() {
@@ -157,6 +166,9 @@ final class AppStore {
     func merge(_ a: MealGroup, into b: MealGroup) -> MealGroup? {
         guard let bIdx = groups.firstIndex(where: { $0.id == b.id }),
               groups.contains(where: { $0.id == a.id }) else { return nil }
+        let sync = sync
+        let (sourceID, destID) = (a.id, b.id)
+        Task { await sync?.mergeGroups(source: sourceID, dest: destID) }
         for member in a.memberIDs where !groups[bIdx].memberIDs.contains(member) {
             groups[bIdx].memberIDs.append(member)
         }

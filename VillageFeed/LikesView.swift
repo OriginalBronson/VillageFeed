@@ -10,13 +10,30 @@ struct LikesView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                if store.likedMe.isEmpty {
+                if store.likedMeCount == 0 {
                     ContentUnavailableView(
                         "No likes yet",
                         systemImage: "heart",
                         description: Text("Post a dish on your profile — cooks with dishes get traded with most.")
                     )
                     .padding(.top, 80)
+                } else if store.likedMe.isEmpty {
+                    // Synced free tier: the server tells us the count but not who.
+                    VStack(spacing: 14) {
+                        Text("💌").font(.system(size: 64)).padding(.top, 60)
+                        Text("\(store.likedMeCount) cooks want to trade with you")
+                            .font(.headline)
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            Text("See them all with Plus")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.horizontal)
                 } else {
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(store.likedMe) { person in
@@ -39,7 +56,7 @@ struct LikesView: View {
 
                     if !entitlements.isPlus {
                         VStack(spacing: 10) {
-                            Text("\(store.likedMe.count) cooks want to trade with you")
+                            Text("\(store.likedMeCount) cooks want to trade with you")
                                 .font(.headline)
                             Button {
                                 showPaywall = true

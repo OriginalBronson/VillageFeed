@@ -97,6 +97,7 @@ final class SyncService {
         var groups: [MealGroup]
         var swipedIDs: [UUID]
         var blockedIDs: [UUID]
+        var likedMeCount: Int
     }
 
     func pull() async throws -> RemoteSnapshot {
@@ -122,18 +123,28 @@ final class SyncService {
             .eq("blocker_id", value: userID)
             .execute().value
 
+        // Likes: count is free-tier; identities come back empty unless is_plus (RPC-gated).
+        let likedMeCount: Int = (try? await client.rpc("who_liked_me_count").execute().value) ?? 0
+        let likedMeIDs: [UUID] = (try? await client.rpc("who_liked_me").execute().value) ?? []
+        let likedMe = Set(likedMeIDs)
+
         let dishesByOwner = Dictionary(grouping: dishes, by: \.owner_id)
         let membersByGroup = Dictionary(grouping: members, by: \.group_id)
 
         return RemoteSnapshot(
-            people: profiles.map { UserProfile(row: $0, dishes: dishesByOwner[$0.id] ?? []) },
+            people: profiles.map { row in
+                var profile = UserProfile(row: row, dishes: dishesByOwner[row.id] ?? [])
+                profile.likesYou = likedMe.contains(row.id)
+                return profile
+            },
             groups: groups.map { g in
                 MealGroup(id: g.id, name: g.name, emoji: g.emoji,
                           memberIDs: (membersByGroup[g.id] ?? []).map(\.member_id),
                           seekingMembers: g.seeking_members, openToMerge: g.open_to_merge)
             },
             swipedIDs: swipes.map(\.target_id),
-            blockedIDs: blocks.map(\.blocked_id)
+            blockedIDs: blocks.map(\.blocked_id),
+            likedMeCount: likedMeCount
         )
     }
 
@@ -219,6 +230,14 @@ final class SyncService {
             try await client.from("group_members")
                 .upsert(GroupMemberRow(group_id: group.id, member_id: userID))
                 .execute()
+        } catch {
+            log(error)
+        }
+    }
+
+    func mergeGroups(source: UUID, dest: UUID) async {
+        do {
+            try await client.rpc("merge_groups", params: ["source": source, "dest": dest]).execute()
         } catch {
             log(error)
         }
