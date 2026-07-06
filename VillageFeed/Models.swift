@@ -20,6 +20,7 @@ enum DietaryTag: String, CaseIterable, Codable, Identifiable, Hashable {
 enum Photo: Equatable, Hashable, Codable {
     case placeholder(emoji: String, hue: Double)
     case data(Data)
+    case remote(URL)
 }
 
 struct Dish: Identifiable, Equatable, Hashable, Codable {

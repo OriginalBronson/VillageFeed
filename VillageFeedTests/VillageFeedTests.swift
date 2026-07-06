@@ -182,7 +182,8 @@ struct VillageFeedTests {
     @Test func profileRowMapsToUserProfile() {
         let uid = UUID()
         let row = ProfileRow(id: uid, name: "Ana", neighborhood: "Hill", bio: "soups",
-                             dietary_tags: ["Vegan", "not-a-real-tag"], status: "active")
+                             dietary_tags: ["Vegan", "not-a-real-tag"], status: "active",
+                             photo_path: nil)
         let dish = DishRow(id: UUID(), owner_id: uid, name: "Pho", emoji: "🍜",
                            blurb: "beefy", portions: 4, allergen_note: "fish sauce")
         let profile = UserProfile(row: row, dishes: [dish])
@@ -191,6 +192,11 @@ struct VillageFeedTests {
         #expect(profile.dishes.first?.allergenNote == "fish sauce")
         #expect(profile.status == .active)
         #expect(profile.likesYou == false)
+
+        // With a photo URL the profile renders the remote image instead of a placeholder
+        let url = URL(string: "https://example.supabase.co/storage/v1/object/public/photos/x/profile.jpg")!
+        let withPhoto = UserProfile(row: row, dishes: [], photoURL: url)
+        #expect(withPhoto.photo == .remote(url))
     }
 
     @Test func adoptIdentityRewritesMeAndGroupMembership() {

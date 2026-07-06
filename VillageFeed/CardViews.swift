@@ -136,6 +136,18 @@ struct PhotoView: View {
                 } else {
                     Color.gray
                 }
+            case .remote(let url):
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    default:
+                        ZStack {
+                            Color(hue: 0.09, saturation: 0.3, brightness: 0.9)
+                            Text("🍽️").font(.system(size: height * 0.3))
+                        }
+                    }
+                }
             }
         }
         .frame(height: height)

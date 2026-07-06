@@ -9,6 +9,7 @@ struct ProfileRow: Codable, Equatable {
     var bio: String
     var dietary_tags: [String]
     var status: String
+    var photo_path: String?
 }
 
 struct DishRow: Codable, Equatable {
@@ -67,13 +68,14 @@ struct BlockRow: Codable, Equatable {
 }
 
 extension UserProfile {
-    init(row: ProfileRow, dishes: [DishRow]) {
+    init(row: ProfileRow, dishes: [DishRow], photoURL: URL? = nil) {
         self.init(
             id: row.id,
             name: row.name,
             neighborhood: row.neighborhood,
             bio: row.bio,
-            photo: .placeholder(emoji: "🧑‍🍳", hue: Double(abs(row.id.hashValue % 100)) / 100.0),
+            photo: photoURL.map(Photo.remote)
+                ?? .placeholder(emoji: "🧑‍🍳", hue: Double(abs(row.id.hashValue % 100)) / 100.0),
             dietaryTags: row.dietary_tags.compactMap(DietaryTag.init(rawValue:)),
             dishes: dishes.map {
                 Dish(id: $0.id, name: $0.name, emoji: $0.emoji, blurb: $0.blurb,
@@ -111,7 +113,7 @@ final class SyncService {
 
     func pull() async throws -> RemoteSnapshot {
         let profiles: [ProfileRow] = try await client.from("profiles")
-            .select("id,name,neighborhood,bio,dietary_tags,status")
+            .select("id,name,neighborhood,bio,dietary_tags,status,photo_path")
             .neq("id", value: userID)
             .execute().value
         let dishes: [DishRow] = try await client.from("dishes")
@@ -151,7 +153,8 @@ final class SyncService {
 
         return RemoteSnapshot(
             people: profiles.map { row in
-                var profile = UserProfile(row: row, dishes: dishesByOwner[row.id] ?? [])
+                var profile = UserProfile(row: row, dishes: dishesByOwner[row.id] ?? [],
+                                          photoURL: publicPhotoURL(row.photo_path))
                 profile.likesYou = likedMe.contains(row.id)
                 return profile
             },
@@ -178,13 +181,34 @@ final class SyncService {
         var neighborhood: String
         var bio: String
         var dietary_tags: [String]
+        var photo_path: String?
+    }
+
+    private func publicPhotoURL(_ path: String?) -> URL? {
+        guard let path else { return nil }
+        return try? client.storage.from("photos").getPublicURL(path: path)
     }
 
     func pushProfile(_ me: UserProfile) async {
+        var photoPath: String?
+        if case .data(let imageData) = me.photo {
+            let path = "\(userID.uuidString.lowercased())/profile.jpg"
+            do {
+                try await client.storage.from("photos").upload(
+                    path,
+                    data: imageData,
+                    options: FileOptions(cacheControl: "3600", contentType: "image/jpeg", upsert: true)
+                )
+                photoPath = path
+            } catch {
+                log(error) // profile text still syncs without the photo
+            }
+        }
         do {
             try await client.from("profiles")
                 .update(ProfileUpdate(name: me.name, neighborhood: me.neighborhood,
-                                      bio: me.bio, dietary_tags: me.dietaryTags.map(\.rawValue)))
+                                      bio: me.bio, dietary_tags: me.dietaryTags.map(\.rawValue),
+                                      photo_path: photoPath))
                 .eq("id", value: userID)
                 .execute()
             try await client.from("dishes").delete().eq("owner_id", value: userID).execute()
