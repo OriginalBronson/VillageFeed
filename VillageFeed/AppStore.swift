@@ -13,24 +13,50 @@ final class AppStore {
     var me: UserProfile
     var people: [UserProfile]
     var groups: [MealGroup]
-    var deck: [DeckCard]
+    var deck: [DeckCard] = []
+    var swipedIDs: [UUID] = []
     var matchedIDs: [UUID] = []
     var reviewQueue: [ReviewCase] = []
 
-    init() {
-        let seed = AppStore.seedPeople()
-        me = UserProfile(
-            name: "You",
-            neighborhood: "Maplewood",
-            bio: "Big-batch cook looking to eat something other than my own lasagna five nights running.",
-            photo: .placeholder(emoji: "🧑‍🍳", hue: 0.58),
-            dietaryTags: [.highProtein],
-            dishes: [Dish(name: "Classic Lasagna", emoji: "🍝", blurb: "Family recipe, feeds an army", portions: 8)]
-        )
-        people = seed
-        let g = AppStore.seedGroups(people: seed)
-        groups = g
-        deck = seed.map { .person($0) } + g.map { .group($0) }
+    private let persistedToDisk: Bool
+
+    init(persisted: Bool = true) {
+        persistedToDisk = persisted
+        if persisted, let state = Persistence.load() {
+            me = state.me
+            people = state.people
+            groups = state.groups
+            swipedIDs = state.swipedIDs
+            matchedIDs = state.matchedIDs
+            reviewQueue = state.reviewQueue
+        } else {
+            let seed = AppStore.seedPeople()
+            me = UserProfile(
+                name: "You",
+                neighborhood: "Maplewood",
+                bio: "Big-batch cook looking to eat something other than my own lasagna five nights running.",
+                photo: .placeholder(emoji: "🧑‍🍳", hue: 0.58),
+                dietaryTags: [.highProtein],
+                dishes: [Dish(name: "Classic Lasagna", emoji: "🍝", blurb: "Family recipe, feeds an army", portions: 8)]
+            )
+            people = seed
+            groups = AppStore.seedGroups(people: seed)
+        }
+        rebuildDeck()
+    }
+
+    func persist() {
+        guard persistedToDisk else { return }
+        Persistence.save(PersistedState(
+            me: me, people: people, groups: groups,
+            swipedIDs: swipedIDs, matchedIDs: matchedIDs, reviewQueue: reviewQueue
+        ))
+    }
+
+    private func rebuildDeck() {
+        let swiped = Set(swipedIDs)
+        deck = people.filter { $0.status == .active && !swiped.contains($0.id) }.map { .person($0) }
+            + groups.filter { $0.seekingMembers && !swiped.contains($0.id) && !$0.memberIDs.contains(me.id) }.map { .group($0) }
     }
 
     // MARK: - Discovery
@@ -50,6 +76,8 @@ final class AppStore {
     @discardableResult
     func swipe(_ card: DeckCard, liked: Bool) -> SwipeOutcome {
         deck.removeAll { $0.id == card.id }
+        swipedIDs.append(card.id)
+        defer { persist() }
         guard liked else { return .none }
         switch card {
         case .person(let person):
@@ -69,6 +97,8 @@ final class AppStore {
         if !groups[idx].memberIDs.contains(me.id) {
             groups[idx].memberIDs.append(me.id)
         }
+        deck.removeAll { $0.id == group.id }
+        persist()
         return .joinedGroup(groups[idx])
     }
 
@@ -78,6 +108,7 @@ final class AppStore {
     func createGroup(named name: String, emoji: String, with person: UserProfile) -> MealGroup {
         let group = MealGroup(name: name, emoji: emoji, memberIDs: [me.id, person.id])
         groups.append(group)
+        persist()
         return group
     }
 
@@ -90,6 +121,7 @@ final class AppStore {
         }
         groups.removeAll { $0.id == a.id }
         deck.removeAll { $0.id == a.id }
+        persist()
         return groups[bIdx]
     }
 
@@ -111,6 +143,7 @@ final class AppStore {
             subjectSummary: summary(of: person),
             trigger: .report(reason)
         ))
+        persist()
     }
 
     func submitMyProfileForReview() {
@@ -121,6 +154,7 @@ final class AppStore {
             subjectSummary: summary(of: me),
             trigger: .newProfile
         ))
+        persist()
     }
 
     func recordAIVerdict(_ verdict: ReviewCase.Verdict, rationale: String, for caseID: UUID) {
@@ -130,6 +164,8 @@ final class AppStore {
         // ponytail: AI verdicts auto-resolve only clear approvals; reject/escalate waits for a human
         if verdict == .approve {
             resolve(caseID: caseID, approved: true)
+        } else {
+            persist()
         }
     }
 
@@ -148,6 +184,7 @@ final class AppStore {
             }
             groups.removeAll { $0.memberIDs.count < 2 && !$0.memberIDs.contains(me.id) }
         }
+        persist()
     }
 
     var pendingReviewCases: [ReviewCase] {

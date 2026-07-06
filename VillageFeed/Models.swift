@@ -17,12 +17,12 @@ enum DietaryTag: String, CaseIterable, Codable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
-enum Photo: Equatable, Hashable {
+enum Photo: Equatable, Hashable, Codable {
     case placeholder(emoji: String, hue: Double)
     case data(Data)
 }
 
-struct Dish: Identifiable, Equatable, Hashable {
+struct Dish: Identifiable, Equatable, Hashable, Codable {
     let id: UUID
     var name: String
     var emoji: String
@@ -38,14 +38,14 @@ struct Dish: Identifiable, Equatable, Hashable {
     }
 }
 
-enum ProfileStatus: String, Equatable {
+enum ProfileStatus: String, Equatable, Codable {
     case active
     case pendingReview
     case frozen
     case banned
 }
 
-struct UserProfile: Identifiable, Equatable {
+struct UserProfile: Identifiable, Equatable, Codable {
     let id: UUID
     var name: String
     var neighborhood: String
@@ -71,7 +71,7 @@ struct UserProfile: Identifiable, Equatable {
     }
 }
 
-struct MealGroup: Identifiable, Equatable {
+struct MealGroup: Identifiable, Equatable, Codable {
     let id: UUID
     var name: String
     var emoji: String
@@ -102,7 +102,7 @@ enum DeckCard: Identifiable, Equatable {
     }
 }
 
-enum ReportReason: String, CaseIterable, Identifiable {
+enum ReportReason: String, CaseIterable, Identifiable, Codable {
     case inappropriatePhoto = "Inappropriate photo"
     case harassment = "Harassment or abuse"
     case foodSafety = "Food safety concern"
@@ -112,13 +112,13 @@ enum ReportReason: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct ReviewCase: Identifiable, Equatable {
-    enum Trigger: Equatable {
+struct ReviewCase: Identifiable, Equatable, Codable {
+    enum Trigger: Equatable, Codable {
         case report(ReportReason)
         case newProfile
     }
 
-    enum Verdict: String, Equatable {
+    enum Verdict: String, Equatable, Codable {
         case approve
         case reject
         case escalate

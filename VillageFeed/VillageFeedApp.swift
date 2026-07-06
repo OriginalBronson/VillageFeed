@@ -6,6 +6,7 @@ struct VillageFeedApp: App {
     @State private var entitlements = EntitlementStore()
     @State private var auth = AuthSession()
     @AppStorage("hasOnboarded") private var hasOnboarded = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -28,6 +29,11 @@ struct VillageFeedApp: App {
             .environment(auth)
             .task { await entitlements.start() }
             .task { await auth.start() }
+            .onChange(of: scenePhase) {
+                if scenePhase == .background || scenePhase == .inactive {
+                    store.persist()
+                }
+            }
         }
     }
 }

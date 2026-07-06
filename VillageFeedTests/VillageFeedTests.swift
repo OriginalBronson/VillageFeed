@@ -6,7 +6,7 @@ import Foundation
 struct VillageFeedTests {
 
     @Test func swipeRightOnMutualLikeCreatesMatch() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let liker = store.people.first { $0.likesYou }!
         let outcome = store.swipe(.person(liker), liked: true)
         #expect(outcome == .matched(liker))
@@ -15,7 +15,7 @@ struct VillageFeedTests {
     }
 
     @Test func swipeRightWithoutMutualLikeIsNotAMatch() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let nonLiker = store.people.first { !$0.likesYou }!
         let outcome = store.swipe(.person(nonLiker), liked: true)
         #expect(outcome == .none)
@@ -23,7 +23,7 @@ struct VillageFeedTests {
     }
 
     @Test func swipeLeftRemovesCardOnly() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let liker = store.people.first { $0.likesYou }!
         let outcome = store.swipe(.person(liker), liked: false)
         #expect(outcome == .none)
@@ -32,7 +32,7 @@ struct VillageFeedTests {
     }
 
     @Test func swipingRightOnGroupJoinsIt() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let group = store.groups[0]
         let outcome = store.swipe(.group(group), liked: true)
         guard case .joinedGroup(let joined) = outcome else {
@@ -44,14 +44,14 @@ struct VillageFeedTests {
     }
 
     @Test func soloMemberCanJoinMultipleGroups() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         store.join(store.groups[0])
         store.join(store.groups[1])
         #expect(store.myGroups.count == 2)
     }
 
     @Test func matchCanSeedATwoPersonGroup() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let partner = store.people[0]
         let group = store.createGroup(named: "Test", emoji: "🍽️", with: partner)
         #expect(group.memberIDs.count == 2)
@@ -59,7 +59,7 @@ struct VillageFeedTests {
     }
 
     @Test func mergeUnionsMembersAndRemovesSourceGroup() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let a = store.groups[1]
         let b = store.groups[0]
         let expected = Set(a.memberIDs).union(b.memberIDs)
@@ -71,7 +71,7 @@ struct VillageFeedTests {
     }
 
     @Test func reportInstantlyFreezesAndQueuesForReview() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let person = store.people[0]
         store.report(person, reason: .harassment)
         #expect(store.people.first { $0.id == person.id }?.status == .frozen)
@@ -82,7 +82,7 @@ struct VillageFeedTests {
     }
 
     @Test func humanApprovalUnfreezesProfile() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let person = store.people[0]
         store.report(person, reason: .fakeProfile)
         let caseID = store.pendingReviewCases.first { $0.subjectID == person.id }!.id
@@ -92,7 +92,7 @@ struct VillageFeedTests {
     }
 
     @Test func banRemovesFromGroupsMatchesAndDeck() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let person = store.people[0] // Maya, member of the Maplewood group
         store.matchedIDs.append(person.id)
         store.report(person, reason: .scamOrSpam)
@@ -104,7 +104,7 @@ struct VillageFeedTests {
     }
 
     @Test func aiApproveVerdictAutoResolves() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let person = store.people[1]
         store.report(person, reason: .inappropriatePhoto)
         let caseID = store.pendingReviewCases.first!.id
@@ -114,7 +114,7 @@ struct VillageFeedTests {
     }
 
     @Test func aiEscalateVerdictWaitsForHuman() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         let person = store.people[1]
         store.report(person, reason: .foodSafety)
         let caseID = store.pendingReviewCases.first!.id
@@ -123,8 +123,46 @@ struct VillageFeedTests {
         #expect(store.people.first { $0.id == person.id }?.status == .frozen)
     }
 
+    @Test func persistedStateRoundTripsThroughJSON() throws {
+        let store = AppStore(persisted: false)
+        store.swipe(store.deck.first!, liked: true)
+        store.report(store.people[2], reason: .harassment)
+        let state = PersistedState(
+            me: store.me, people: store.people, groups: store.groups,
+            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, reviewQueue: store.reviewQueue
+        )
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vf-test-\(UUID().uuidString).json")
+        Persistence.save(state, to: url)
+        let loaded = Persistence.load(from: url)
+        #expect(loaded == state)
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @Test func deckRebuildExcludesSwipedFrozenAndJoined() {
+        let store = AppStore(persisted: false)
+        // A frozen person, a swiped person, and a joined group must not reappear in the deck
+        let swiped = store.people[4]
+        store.swipe(.person(swiped), liked: false)
+        store.report(store.people[0], reason: .fakeProfile)
+        store.join(store.groups[0])
+        let state = PersistedState(
+            me: store.me, people: store.people, groups: store.groups,
+            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, reviewQueue: store.reviewQueue
+        )
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vf-test-\(UUID().uuidString).json")
+        Persistence.save(state, to: url)
+        let reloaded = Persistence.load(from: url)!
+        let swipedSet = Set(reloaded.swipedIDs)
+        #expect(swipedSet.contains(swiped.id))
+        #expect(reloaded.people.first { $0.id == store.people[0].id }?.status == .frozen)
+        #expect(reloaded.groups[0].memberIDs.contains(store.me.id))
+        try? FileManager.default.removeItem(at: url)
+    }
+
     @Test func newProfileSubmissionGoesThroughReview() {
-        let store = AppStore()
+        let store = AppStore(persisted: false)
         store.submitMyProfileForReview()
         #expect(store.me.status == .pendingReview)
         let caseID = store.pendingReviewCases.first { $0.subjectID == store.me.id }!.id
