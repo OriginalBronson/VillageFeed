@@ -165,7 +165,8 @@ struct ProfileView: View {
             .onChange(of: photoItem) {
                 Task {
                     if let data = try? await photoItem?.loadTransferable(type: Data.self) {
-                        store.me.photo = .data(data)
+                        store.me.photo = .data(ImageProcessor.jpegData(from: data) ?? data)
+                        store.persist()
                     }
                 }
             }
@@ -244,7 +245,7 @@ struct DishEditorSheet: View {
             .onChange(of: photoItem) {
                 Task {
                     if let data = try? await photoItem?.loadTransferable(type: Data.self) {
-                        photoData = data
+                        photoData = ImageProcessor.jpegData(from: data) ?? data
                     }
                 }
             }

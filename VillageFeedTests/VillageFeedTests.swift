@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import UIKit
 @testable import VillageFeed
 
 @MainActor
@@ -318,6 +319,38 @@ struct VillageFeedTests {
                                               sender_id: mine.senderID, text: mine.text,
                                               sent_at: mine.sentAt))
         #expect(store.messages(in: store.groups[0]).count == 2)
+    }
+
+    @Test func leavingAGroupRemovesMeAndCullsEmptyGroups() {
+        let store = AppStore(persisted: false)
+        store.join(store.groups[0])
+        let joined = store.myGroups[0]
+        store.leave(joined)
+        #expect(store.myGroups.isEmpty)
+        #expect(store.groups.first { $0.id == joined.id }?.memberIDs.contains(store.me.id) != true)
+
+        // A 2-person group I created collapses entirely when I leave
+        let partner = store.people[1]
+        let pair = store.createGroup(named: "Pair", emoji: "🍽️", with: partner)
+        store.leave(pair)
+        // Partner remains, so the group survives with 1 member server-side;
+        // locally it's no longer mine
+        #expect(!store.myGroups.contains { $0.id == pair.id })
+    }
+
+    @Test func imageProcessorDownscalesLargeImages() throws {
+        let size = CGSize(width: 4000, height: 3000)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let big = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            UIColor.systemOrange.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+        }
+        let original = big.jpegData(compressionQuality: 1)!
+        let processed = try #require(ImageProcessor.jpegData(from: original))
+        let reloaded = try #require(UIImage(data: processed))
+        #expect(max(reloaded.size.width, reloaded.size.height) <= 1200)
+        #expect(processed.count < original.count)
     }
 
     @Test func newProfileSubmissionGoesThroughReview() {

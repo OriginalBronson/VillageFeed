@@ -268,6 +268,18 @@ final class AppStore {
         return message
     }
 
+    func leave(_ group: MealGroup) {
+        guard let idx = groups.firstIndex(where: { $0.id == group.id }) else { return }
+        groups[idx].memberIDs.removeAll { $0 == me.id }
+        if groups[idx].memberIDs.isEmpty {
+            groups.remove(at: idx)
+        }
+        let sync = sync
+        let groupID = group.id
+        Task { await sync?.leaveGroup(groupID: groupID) }
+        persist()
+    }
+
     func members(of group: MealGroup) -> [UserProfile] {
         group.memberIDs.compactMap { id in
             if id == me.id { return me }

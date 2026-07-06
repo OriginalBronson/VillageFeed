@@ -79,9 +79,11 @@ struct GroupsView: View {
 
 struct GroupDetailView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
     let groupID: UUID
     @State private var mergeTarget: MealGroup?
     @State private var draft = ""
+    @State private var confirmingLeave = false
 
     private var group: MealGroup? {
         store.groups.first { $0.id == groupID }
@@ -182,9 +184,24 @@ struct GroupDetailView: View {
                         }
                     }
                 }
+
+                Section {
+                    Button("Leave group", role: .destructive) {
+                        confirmingLeave = true
+                    }
+                }
             }
             .navigationTitle("\(group.emoji) \(group.name)")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("Leave \(group.name)?", isPresented: $confirmingLeave, titleVisibility: .visible) {
+                Button("Leave", role: .destructive) {
+                    store.leave(group)
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You'll stop seeing this group's table talk and weekly trades.")
+            }
             .alert("Merge groups?", isPresented: Binding(
                 get: { mergeTarget != nil }, set: { if !$0 { mergeTarget = nil } }
             )) {

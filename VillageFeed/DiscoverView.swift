@@ -51,6 +51,8 @@ struct DiscoverView: View {
             }
             .navigationTitle("Discover")
             .animation(.spring(duration: 0.3), value: dragOffset)
+            .sensoryFeedback(.success, trigger: match)
+            .sensoryFeedback(.impact(weight: .light), trigger: store.deck.count)
         }
         .sheet(item: $match) { person in
             MatchSheet(person: person)

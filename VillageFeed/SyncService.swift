@@ -335,6 +335,17 @@ final class SyncService {
         }
     }
 
+    func leaveGroup(groupID: UUID) async {
+        do {
+            try await client.from("group_members").delete()
+                .eq("group_id", value: groupID)
+                .eq("member_id", value: userID)
+                .execute()
+        } catch {
+            log(error)
+        }
+    }
+
     // MARK: - Realtime
 
     // Postgres timestamps arrive as ISO8601 with microseconds; plain .iso8601 chokes.
