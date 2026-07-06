@@ -4,20 +4,30 @@ import SwiftUI
 struct VillageFeedApp: App {
     @State private var store = AppStore()
     @State private var entitlements = EntitlementStore()
+    @State private var auth = AuthSession()
     @AppStorage("hasOnboarded") private var hasOnboarded = false
 
     var body: some Scene {
         WindowGroup {
             Group {
-                if hasOnboarded {
-                    RootView()
-                } else {
+                if !hasOnboarded {
                     OnboardingView(done: $hasOnboarded)
+                } else {
+                    switch auth.state {
+                    case .loading:
+                        ProgressView()
+                    case .signedOut:
+                        SignInView()
+                    case .signedIn, .demo:
+                        RootView()
+                    }
                 }
             }
             .environment(store)
             .environment(entitlements)
+            .environment(auth)
             .task { await entitlements.start() }
+            .task { await auth.start() }
         }
     }
 }

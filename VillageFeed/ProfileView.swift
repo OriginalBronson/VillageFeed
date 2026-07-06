@@ -3,6 +3,7 @@ import PhotosUI
 
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
+    @Environment(AuthSession.self) private var auth
     @State private var photoItem: PhotosPickerItem?
     @State private var newDishName = ""
     @State private var newDishEmoji = "🍲"
@@ -94,6 +95,21 @@ struct ProfileView: View {
                         .foregroundStyle(.secondary)
                 } header: {
                     Text("Publish")
+                }
+
+                Section("Account") {
+                    if auth.state == .signedIn {
+                        if let email = auth.userEmail {
+                            LabeledContent("Signed in as", value: email)
+                        }
+                        Button("Sign out", role: .destructive) {
+                            Task { await auth.signOut() }
+                        }
+                    } else {
+                        Text("Demo mode — no account. Configure Supabase to enable sign-in.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Moderation") {
