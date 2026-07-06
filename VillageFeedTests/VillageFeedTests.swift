@@ -177,6 +177,37 @@ struct VillageFeedTests {
         #expect(store.myGroups.allSatisfy { !$0.memberIDs.contains(person.id) })
     }
 
+    @Test func profileRowMapsToUserProfile() {
+        let uid = UUID()
+        let row = ProfileRow(id: uid, name: "Ana", neighborhood: "Hill", bio: "soups",
+                             dietary_tags: ["Vegan", "not-a-real-tag"], status: "active")
+        let dish = DishRow(id: UUID(), owner_id: uid, name: "Pho", emoji: "🍜",
+                           blurb: "beefy", portions: 4, allergen_note: "fish sauce")
+        let profile = UserProfile(row: row, dishes: [dish])
+        #expect(profile.id == uid)
+        #expect(profile.dietaryTags == [.vegan]) // unknown tags dropped, not crashed
+        #expect(profile.dishes.first?.allergenNote == "fish sauce")
+        #expect(profile.status == .active)
+        #expect(profile.likesYou == false)
+    }
+
+    @Test func adoptIdentityRewritesMeAndGroupMembership() {
+        let store = AppStore(persisted: false)
+        store.join(store.groups[0])
+        let serverID = UUID()
+        store.adoptIdentity(serverID)
+        #expect(store.me.id == serverID)
+        #expect(store.groups[0].memberIDs.contains(serverID))
+        #expect(store.myGroups.count == 1)
+    }
+
+    @Test func uuidOrderMatchesPostgresByteOrder() {
+        let low = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let high = UUID(uuidString: "FFFFFFFF-0000-0000-0000-000000000000")!
+        #expect(uuidOrder(low, high))
+        #expect(!uuidOrder(high, low))
+    }
+
     @Test func newProfileSubmissionGoesThroughReview() {
         let store = AppStore(persisted: false)
         store.submitMyProfileForReview()

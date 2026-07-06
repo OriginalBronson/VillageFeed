@@ -15,6 +15,7 @@ final class AuthSession {
 
     private(set) var state: State = .loading
     private(set) var userEmail: String?
+    private(set) var userID: UUID?
     private(set) var lastError: String?
     let client: SupabaseClient?
 
@@ -49,6 +50,7 @@ final class AuthSession {
 
     private func apply(_ session: Session) {
         userEmail = session.user.email
+        userID = session.user.id
         state = .signedIn
     }
 

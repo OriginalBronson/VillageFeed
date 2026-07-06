@@ -34,6 +34,20 @@ struct VillageFeedApp: App {
                     store.persist()
                 }
             }
+            .onChange(of: auth.state) {
+                guard auth.state == .signedIn, let client = auth.client, let uid = auth.userID else {
+                    store.sync = nil
+                    return
+                }
+                let sync = SyncService(client: client, userID: uid)
+                store.sync = sync
+                store.adoptIdentity(uid)
+                Task {
+                    if let snapshot = try? await sync.pull() {
+                        store.applyRemote(snapshot)
+                    }
+                }
+            }
         }
     }
 }

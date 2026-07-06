@@ -19,6 +19,10 @@ final class AppStore {
     var blockedIDs: [UUID] = []
     var reviewQueue: [ReviewCase] = []
 
+    // Set when signed in against a configured Supabase backend; all writes are
+    // mirrored best-effort, and pulls replace the seeded neighborhood.
+    @ObservationIgnored var sync: SyncService?
+
     private let persistedToDisk: Bool
 
     init(persisted: Bool = true) {
@@ -45,6 +49,29 @@ final class AppStore {
             groups = AppStore.seedGroups(people: seed)
         }
         rebuildDeck()
+    }
+
+    // In synced mode "me" must carry the server-side auth user id so group
+    // membership and swipe rows line up across devices.
+    func adoptIdentity(_ uid: UUID) {
+        guard me.id != uid else { return }
+        let old = me.id
+        me = UserProfile(id: uid, name: me.name, neighborhood: me.neighborhood, bio: me.bio,
+                         photo: me.photo, dietaryTags: me.dietaryTags, dishes: me.dishes,
+                         likesYou: false, status: me.status)
+        for i in groups.indices {
+            groups[i].memberIDs = groups[i].memberIDs.map { $0 == old ? uid : $0 }
+        }
+        persist()
+    }
+
+    func applyRemote(_ snapshot: SyncService.RemoteSnapshot) {
+        people = snapshot.people
+        groups = snapshot.groups
+        swipedIDs = snapshot.swipedIDs
+        blockedIDs = snapshot.blockedIDs
+        rebuildDeck()
+        persist()
     }
 
     func persist() {
@@ -79,6 +106,10 @@ final class AppStore {
     func swipe(_ card: DeckCard, liked: Bool) -> SwipeOutcome {
         deck.removeAll { $0.id == card.id }
         swipedIDs.append(card.id)
+        if case .person = card {
+            let sync = sync
+            Task { await sync?.recordSwipe(targetID: card.id, kind: "person", liked: liked) }
+        }
         defer { persist() }
         guard liked else { return .none }
         switch card {
@@ -100,6 +131,12 @@ final class AppStore {
             groups[idx].memberIDs.append(me.id)
         }
         deck.removeAll { $0.id == group.id }
+        let sync = sync
+        let groupID = group.id
+        Task {
+            await sync?.recordSwipe(targetID: groupID, kind: "group", liked: true)
+            await sync?.joinGroup(groupID: groupID)
+        }
         persist()
         return .joinedGroup(groups[idx])
     }
@@ -110,6 +147,8 @@ final class AppStore {
     func createGroup(named name: String, emoji: String, with person: UserProfile) -> MealGroup {
         let group = MealGroup(name: name, emoji: emoji, memberIDs: [me.id, person.id])
         groups.append(group)
+        let sync = sync
+        Task { await sync?.createGroup(group) }
         persist()
         return group
     }
@@ -141,6 +180,8 @@ final class AppStore {
     func block(_ person: UserProfile) {
         guard !blockedIDs.contains(person.id) else { return }
         blockedIDs.append(person.id)
+        let sync = sync
+        Task { await sync?.recordBlock(blockedID: person.id) }
         deck.removeAll { $0.id == person.id }
         matchedIDs.removeAll { $0 == person.id }
         for gIdx in groups.indices where groups[gIdx].memberIDs.contains(me.id) {
@@ -150,6 +191,8 @@ final class AppStore {
     }
 
     func report(_ person: UserProfile, reason: ReportReason) {
+        let sync = sync
+        Task { await sync?.fileReport(subjectID: person.id, reason: reason) }
         setStatus(.frozen, for: person.id)
         deck.removeAll { $0.id == person.id }
         reviewQueue.append(ReviewCase(
@@ -163,6 +206,9 @@ final class AppStore {
 
     func submitMyProfileForReview() {
         me.status = .pendingReview
+        let sync = sync
+        let profile = me
+        Task { await sync?.pushProfile(profile) }
         reviewQueue.append(ReviewCase(
             subjectID: me.id,
             subjectName: me.name,
