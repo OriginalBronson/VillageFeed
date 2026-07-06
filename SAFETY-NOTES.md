@@ -14,6 +14,12 @@ What ships today, and the safety issues that must be addressed before real users
   Only clear approvals auto-resolve; rejections and escalations wait for a human. A human can
   also resolve any case directly with zero API cost — this is the "human participates to cut
   API costs" path.
+- **Instant blocking, independent of moderation** (never waits on a reviewer; also hides the
+  blocked user's chat messages), plus a **report rate limit** (5 per rolling 24h, client-side)
+  so the instant-freeze trigger can't be spammed. A server-side limit on the `reports` table
+  should mirror this before launch.
+- **Age gate + food-risk acknowledgment** required to finish onboarding; **per-dish allergen
+  notes** are structured fields shown on cards.
 
 ## Must address before launch (in rough priority order)
 
@@ -35,8 +41,9 @@ What ships today, and the safety issues that must be addressed before real users
    distance precise enough to triangulate a home.
 4. **Minors.** Age-gate at signup (17+ App Store rating); moderation should reject profiles
    that appear to be minors.
-5. **Harassment & blocking.** Block must be instant, bidirectional, and independent of the
-   report/review pipeline (blocking never waits on a moderator). Mutual-match messaging only.
+5. **Harassment & blocking.** Client-side instant block shipped; make it bidirectional
+   server-side (the blocked user shouldn't see the blocker either). Group chat exists —
+   membership-gated by RLS; add message reporting.
 6. **Money and commerce.** Trading portions ≠ selling food. Ban payment solicitation
    (moderation prompt covers it) — selling home-cooked food triggers food-service licensing
    law and payment-scam vectors.
