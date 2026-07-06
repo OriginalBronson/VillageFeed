@@ -57,12 +57,18 @@ struct RootView: View {
 struct OnboardingView: View {
     @Binding var done: Bool
     @State private var page = 0
+    @State private var isOfAge = false
+    @State private var acceptsFoodRisk = false
 
     private let pages: [(emoji: String, title: String, sub: String)] = [
         ("🍝", "Make one dish, eat many.", "Cook one big batch, trade portions with neighbors, and eat a different dinner every night."),
         ("🫕", "Cook once, eat all week.", "One lasagna becomes seven dinners when your village cooks with you."),
-        ("🏘️", "Your table, multiplied.", "Swipe to find cooks and supper groups near you. Groups start at just two people.")
+        ("🏘️", "Your table, multiplied.", "Swipe to find cooks and supper groups near you. Groups start at just two people."),
+        ("🤝", "A few house rules.", "Home kitchens aren't inspected. Trade with people you come to trust, declare allergens honestly, and hand off in public places.")
     ]
+
+    private var onGatePage: Bool { page == pages.count - 1 }
+    private var gateSatisfied: Bool { isOfAge && acceptsFoodRisk }
 
     var body: some View {
         VStack {
@@ -78,6 +84,15 @@ struct OnboardingView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
+
+                        if i == pages.count - 1 {
+                            VStack(spacing: 8) {
+                                Toggle("I'm 17 or older", isOn: $isOfAge)
+                                Toggle("I understand meals are home-cooked and uninspected, and I'll disclose allergens honestly", isOn: $acceptsFoodRisk)
+                            }
+                            .font(.subheadline)
+                            .padding(.horizontal, 32)
+                        }
                     }
                     .tag(i)
                 }
@@ -97,6 +112,7 @@ struct OnboardingView: View {
                     .padding(.vertical, 6)
             }
             .buttonStyle(.borderedProminent)
+            .disabled(onGatePage && !gateSatisfied)
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }

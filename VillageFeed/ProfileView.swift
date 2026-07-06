@@ -7,6 +7,7 @@ struct ProfileView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var newDishName = ""
     @State private var newDishEmoji = "🍲"
+    @State private var newDishAllergens = ""
     @State private var addingDish = false
 
     var body: some View {
@@ -67,13 +68,20 @@ struct ProfileView: View {
 
                 Section("Dishes you'll trade") {
                     ForEach(store.me.dishes) { dish in
-                        HStack {
-                            Text(dish.emoji)
-                            Text(dish.name)
-                            Spacer()
-                            Text("\(dish.portions) portions")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(dish.emoji)
+                                Text(dish.name)
+                                Spacer()
+                                Text("\(dish.portions) portions")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !dish.allergenNote.isEmpty {
+                                Label(dish.allergenNote, systemImage: "exclamationmark.triangle")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
                         }
                     }
                     .onDelete { store.me.dishes.remove(atOffsets: $0) }
@@ -129,16 +137,23 @@ struct ProfileView: View {
             .alert("Advertise a dish", isPresented: $addingDish) {
                 TextField("Dish name", text: $newDishName)
                 TextField("Emoji", text: $newDishEmoji)
+                TextField("Allergens (e.g. contains nuts)", text: $newDishAllergens)
                 Button("Add") {
                     let name = newDishName.trimmingCharacters(in: .whitespaces)
                     if !name.isEmpty {
-                        store.me.dishes.append(Dish(name: name, emoji: newDishEmoji.isEmpty ? "🍲" : newDishEmoji))
+                        store.me.dishes.append(Dish(
+                            name: name,
+                            emoji: newDishEmoji.isEmpty ? "🍲" : newDishEmoji,
+                            allergenNote: newDishAllergens.trimmingCharacters(in: .whitespaces)
+                        ))
+                        store.persist()
                     }
                     newDishName = ""
+                    newDishAllergens = ""
                 }
-                Button("Cancel", role: .cancel) { newDishName = "" }
+                Button("Cancel", role: .cancel) { newDishName = ""; newDishAllergens = "" }
             } message: {
-                Text("Photos of dishes can be added from the photo picker above.")
+                Text("Declare allergens honestly — your neighbors rely on it. Dish photos come from the photo picker above.")
             }
             .onChange(of: photoItem) {
                 Task {

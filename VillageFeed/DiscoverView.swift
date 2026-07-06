@@ -51,12 +51,16 @@ struct DiscoverView: View {
         } message: {
             Text("Say hi in the Groups tab and post the dish you'll contribute this week.")
         }
-        .confirmationDialog("Report this profile", isPresented: Binding(
+        .confirmationDialog("Report or block", isPresented: Binding(
             get: { reporting != nil }, set: { if !$0 { reporting = nil } }
         ), titleVisibility: .visible) {
             if case .person(let person) = reporting {
+                Button("Block \(person.name)", role: .destructive) {
+                    store.block(person)
+                    reporting = nil
+                }
                 ForEach(ReportReason.allCases) { reason in
-                    Button(reason.rawValue, role: .destructive) {
+                    Button("Report: \(reason.rawValue)", role: .destructive) {
                         store.report(person, reason: reason)
                         reporting = nil
                     }
@@ -64,7 +68,7 @@ struct DiscoverView: View {
             }
             Button("Cancel", role: .cancel) { reporting = nil }
         } message: {
-            Text("Reported profiles are frozen immediately and sent for review.")
+            Text("Blocking hides someone instantly, just for you. Reported profiles are frozen immediately and sent for review.")
         }
     }
 

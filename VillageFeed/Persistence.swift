@@ -6,6 +6,7 @@ struct PersistedState: Codable, Equatable {
     var groups: [MealGroup]
     var swipedIDs: [UUID]
     var matchedIDs: [UUID]
+    var blockedIDs: [UUID]
     var reviewQueue: [ReviewCase]
 }
 

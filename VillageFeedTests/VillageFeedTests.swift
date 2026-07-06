@@ -129,7 +129,7 @@ struct VillageFeedTests {
         store.report(store.people[2], reason: .harassment)
         let state = PersistedState(
             me: store.me, people: store.people, groups: store.groups,
-            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, reviewQueue: store.reviewQueue
+            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, blockedIDs: store.blockedIDs, reviewQueue: store.reviewQueue
         )
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("vf-test-\(UUID().uuidString).json")
@@ -148,7 +148,7 @@ struct VillageFeedTests {
         store.join(store.groups[0])
         let state = PersistedState(
             me: store.me, people: store.people, groups: store.groups,
-            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, reviewQueue: store.reviewQueue
+            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, blockedIDs: store.blockedIDs, reviewQueue: store.reviewQueue
         )
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("vf-test-\(UUID().uuidString).json")
@@ -159,6 +159,22 @@ struct VillageFeedTests {
         #expect(reloaded.people.first { $0.id == store.people[0].id }?.status == .frozen)
         #expect(reloaded.groups[0].memberIDs.contains(store.me.id))
         try? FileManager.default.removeItem(at: url)
+    }
+
+    @Test func blockIsInstantAndIndependentOfModeration() {
+        let store = AppStore(persisted: false)
+        let person = store.people.first { $0.likesYou }!
+        store.matchedIDs.append(person.id)
+        store.join(store.groups[0])
+        store.block(person)
+        #expect(!store.deck.contains { $0.id == person.id })
+        #expect(!store.likedMe.contains { $0.id == person.id })
+        #expect(store.matches.isEmpty)
+        // No review case created, and the other user's status is untouched
+        #expect(store.pendingReviewCases.isEmpty)
+        #expect(store.people.first { $0.id == person.id }?.status == .active)
+        // My groups no longer show the blocked member
+        #expect(store.myGroups.allSatisfy { !$0.memberIDs.contains(person.id) })
     }
 
     @Test func newProfileSubmissionGoesThroughReview() {

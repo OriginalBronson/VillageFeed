@@ -38,13 +38,20 @@ struct PersonCard: View {
                             .font(.caption.smallCaps())
                             .foregroundStyle(.secondary)
                         ForEach(person.dishes.prefix(2)) { dish in
-                            HStack(spacing: 6) {
-                                Text(dish.emoji)
-                                Text(dish.name).font(.subheadline.weight(.medium))
-                                Spacer()
-                                Text("\(dish.portions) portions")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(dish.emoji)
+                                    Text(dish.name).font(.subheadline.weight(.medium))
+                                    Spacer()
+                                    Text("\(dish.portions) portions")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if !dish.allergenNote.isEmpty {
+                                    Label(dish.allergenNote, systemImage: "exclamationmark.triangle")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
                             }
                         }
                     }

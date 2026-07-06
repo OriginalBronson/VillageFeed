@@ -16,6 +16,7 @@ final class AppStore {
     var deck: [DeckCard] = []
     var swipedIDs: [UUID] = []
     var matchedIDs: [UUID] = []
+    var blockedIDs: [UUID] = []
     var reviewQueue: [ReviewCase] = []
 
     private let persistedToDisk: Bool
@@ -28,6 +29,7 @@ final class AppStore {
             groups = state.groups
             swipedIDs = state.swipedIDs
             matchedIDs = state.matchedIDs
+            blockedIDs = state.blockedIDs
             reviewQueue = state.reviewQueue
         } else {
             let seed = AppStore.seedPeople()
@@ -49,24 +51,24 @@ final class AppStore {
         guard persistedToDisk else { return }
         Persistence.save(PersistedState(
             me: me, people: people, groups: groups,
-            swipedIDs: swipedIDs, matchedIDs: matchedIDs, reviewQueue: reviewQueue
+            swipedIDs: swipedIDs, matchedIDs: matchedIDs, blockedIDs: blockedIDs, reviewQueue: reviewQueue
         ))
     }
 
     private func rebuildDeck() {
-        let swiped = Set(swipedIDs)
-        deck = people.filter { $0.status == .active && !swiped.contains($0.id) }.map { .person($0) }
-            + groups.filter { $0.seekingMembers && !swiped.contains($0.id) && !$0.memberIDs.contains(me.id) }.map { .group($0) }
+        let hidden = Set(swipedIDs).union(blockedIDs)
+        deck = people.filter { $0.status == .active && !hidden.contains($0.id) }.map { .person($0) }
+            + groups.filter { $0.seekingMembers && !hidden.contains($0.id) && !$0.memberIDs.contains(me.id) }.map { .group($0) }
     }
 
     // MARK: - Discovery
 
     var matches: [UserProfile] {
-        people.filter { matchedIDs.contains($0.id) && $0.status == .active }
+        people.filter { matchedIDs.contains($0.id) && $0.status == .active && !blockedIDs.contains($0.id) }
     }
 
     var likedMe: [UserProfile] {
-        people.filter { $0.likesYou && $0.status == .active }
+        people.filter { $0.likesYou && $0.status == .active && !blockedIDs.contains($0.id) }
     }
 
     var myGroups: [MealGroup] {
@@ -133,6 +135,19 @@ final class AppStore {
     }
 
     // MARK: - Safety
+
+    // Blocking is instant, personal, and independent of the moderation queue —
+    // it never waits on a reviewer and doesn't touch the other user's status.
+    func block(_ person: UserProfile) {
+        guard !blockedIDs.contains(person.id) else { return }
+        blockedIDs.append(person.id)
+        deck.removeAll { $0.id == person.id }
+        matchedIDs.removeAll { $0 == person.id }
+        for gIdx in groups.indices where groups[gIdx].memberIDs.contains(me.id) {
+            groups[gIdx].memberIDs.removeAll { $0 == person.id }
+        }
+        persist()
+    }
 
     func report(_ person: UserProfile, reason: ReportReason) {
         setStatus(.frozen, for: person.id)

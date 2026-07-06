@@ -28,13 +28,16 @@ struct Dish: Identifiable, Equatable, Hashable, Codable {
     var emoji: String
     var blurb: String
     var portions: Int
+    var allergenNote: String
 
-    init(id: UUID = UUID(), name: String, emoji: String, blurb: String = "", portions: Int = 6) {
+    init(id: UUID = UUID(), name: String, emoji: String, blurb: String = "", portions: Int = 6,
+         allergenNote: String = "") {
         self.id = id
         self.name = name
         self.emoji = emoji
         self.blurb = blurb
         self.portions = portions
+        self.allergenNote = allergenNote
     }
 }
 
