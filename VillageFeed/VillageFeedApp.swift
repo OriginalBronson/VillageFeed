@@ -35,6 +35,8 @@ struct VillageFeedApp: App {
                 }
             }
             .onChange(of: auth.state) {
+                store.messageSubscription?.cancel()
+                store.messageSubscription = nil
                 guard auth.state == .signedIn, let client = auth.client, let uid = auth.userID else {
                     store.sync = nil
                     return
@@ -45,6 +47,9 @@ struct VillageFeedApp: App {
                 Task {
                     if let snapshot = try? await sync.pull() {
                         store.applyRemote(snapshot)
+                    }
+                    store.messageSubscription = sync.subscribeToMessages { [weak store] row in
+                        store?.receiveRemoteMessage(row)
                     }
                 }
             }

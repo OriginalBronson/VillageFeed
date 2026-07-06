@@ -293,6 +293,26 @@ struct VillageFeedTests {
         #expect(store.me.dishes.isEmpty)
     }
 
+    @Test func remoteMessageInsertDedupesAndResolvesNames() {
+        let store = AppStore(persisted: false)
+        store.join(store.groups[0])
+        let sender = store.people.first { store.groups[0].memberIDs.contains($0.id) }!
+        let row = MessageRow(id: UUID(), group_id: store.groups[0].id, sender_id: sender.id,
+                             text: "leftovers at 6?", sent_at: .now)
+        store.receiveRemoteMessage(row)
+        store.receiveRemoteMessage(row) // duplicate insert (echo of own subscription) is ignored
+        let chat = store.messages(in: store.groups[0])
+        #expect(chat.count == 1)
+        #expect(chat.first?.senderName == sender.name)
+
+        // My own echoed message keeps "You" and doesn't duplicate the local copy
+        let mine = store.sendMessage("on my way", in: store.groups[0])!
+        store.receiveRemoteMessage(MessageRow(id: mine.id, group_id: mine.groupID,
+                                              sender_id: mine.senderID, text: mine.text,
+                                              sent_at: mine.sentAt))
+        #expect(store.messages(in: store.groups[0]).count == 2)
+    }
+
     @Test func newProfileSubmissionGoesThroughReview() {
         let store = AppStore(persisted: false)
         store.submitMyProfileForReview()

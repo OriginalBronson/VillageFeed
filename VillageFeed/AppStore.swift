@@ -24,6 +24,7 @@ final class AppStore {
     // Set when signed in against a configured Supabase backend; all writes are
     // mirrored best-effort, and pulls replace the seeded neighborhood.
     @ObservationIgnored var sync: SyncService?
+    @ObservationIgnored var messageSubscription: Task<Void, Never>?
 
     // Server-provided count of people who liked me (free tier sees the number,
     // Plus sees identities). Nil in demo mode.
@@ -241,6 +242,15 @@ final class AppStore {
         messages
             .filter { $0.groupID == group.id && !blockedIDs.contains($0.senderID) }
             .sorted { $0.sentAt < $1.sentAt }
+    }
+
+    func receiveRemoteMessage(_ row: MessageRow) {
+        guard !messages.contains(where: { $0.id == row.id }) else { return }
+        let name = row.sender_id == me.id ? "You"
+            : (people.first { $0.id == row.sender_id }?.name ?? "Neighbor")
+        messages.append(GroupMessage(id: row.id, groupID: row.group_id, senderID: row.sender_id,
+                                     senderName: name, text: row.text, sentAt: row.sent_at))
+        persist()
     }
 
     @discardableResult

@@ -312,6 +312,44 @@ final class SyncService {
         }
     }
 
+    // MARK: - Realtime
+
+    // Postgres timestamps arrive as ISO8601 with microseconds; plain .iso8601 chokes.
+    private static let realtimeDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        decoder.dateDecodingStrategy = .custom { dec in
+            let container = try dec.singleValueContainer()
+            let raw = try container.decode(String.self)
+            if let date = fractional.date(from: raw) ?? plain.date(from: raw) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "unparseable date \(raw)")
+        }
+        return decoder
+    }()
+
+    /// Streams inserted chat rows (RLS scopes them to my groups). Requires the
+    /// table in the supabase_realtime publication (migration 0004). Cancel the
+    /// returned task to unsubscribe.
+    func subscribeToMessages(_ handler: @escaping @MainActor (MessageRow) -> Void) -> Task<Void, Never> {
+        let channel = client.channel("group-messages")
+        let inserts = channel.postgresChange(InsertAction.self, schema: "public", table: "group_messages")
+        return Task {
+            await channel.subscribe()
+            for await insert in inserts {
+                if Task.isCancelled { break }
+                if let row = try? insert.decodeRecord(as: MessageRow.self, decoder: Self.realtimeDecoder) {
+                    handler(row)
+                }
+            }
+            await channel.unsubscribe()
+        }
+    }
+
     private func log(_ error: Error) {
         #if DEBUG
         print("[SyncService] \(error)")
