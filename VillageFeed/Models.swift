@@ -105,6 +105,25 @@ enum DeckCard: Identifiable, Equatable {
     }
 }
 
+struct GroupMessage: Identifiable, Equatable, Codable {
+    let id: UUID
+    let groupID: UUID
+    let senderID: UUID
+    var senderName: String
+    var text: String
+    let sentAt: Date
+
+    init(id: UUID = UUID(), groupID: UUID, senderID: UUID, senderName: String,
+         text: String, sentAt: Date = .now) {
+        self.id = id
+        self.groupID = groupID
+        self.senderID = senderID
+        self.senderName = senderName
+        self.text = text
+        self.sentAt = sentAt
+    }
+}
+
 enum ReportReason: String, CaseIterable, Identifiable, Codable {
     case inappropriatePhoto = "Inappropriate photo"
     case harassment = "Harassment or abuse"

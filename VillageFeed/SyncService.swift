@@ -53,6 +53,14 @@ struct MatchRow: Codable, Equatable {
     var b: UUID
 }
 
+struct MessageRow: Codable, Equatable {
+    var id: UUID
+    var group_id: UUID
+    var sender_id: UUID
+    var text: String
+    var sent_at: Date
+}
+
 struct BlockRow: Codable, Equatable {
     var blocker_id: UUID
     var blocked_id: UUID
@@ -98,6 +106,7 @@ final class SyncService {
         var swipedIDs: [UUID]
         var blockedIDs: [UUID]
         var likedMeCount: Int
+        var messages: [GroupMessage]
     }
 
     func pull() async throws -> RemoteSnapshot {
@@ -123,6 +132,14 @@ final class SyncService {
             .eq("blocker_id", value: userID)
             .execute().value
 
+        // Chat: RLS scopes rows to groups I'm a member of. Tolerate the table
+        // not existing yet (migration 0003 may lag the app build).
+        let messageRows: [MessageRow] = (try? await client.from("group_messages")
+            .select("id,group_id,sender_id,text,sent_at")
+            .order("sent_at", ascending: true)
+            .limit(500)
+            .execute().value) ?? []
+
         // Likes: count is free-tier; identities come back empty unless is_plus (RPC-gated).
         let likedMeCount: Int = (try? await client.rpc("who_liked_me_count").execute().value) ?? 0
         let likedMeIDs: [UUID] = (try? await client.rpc("who_liked_me").execute().value) ?? []
@@ -130,6 +147,7 @@ final class SyncService {
 
         let dishesByOwner = Dictionary(grouping: dishes, by: \.owner_id)
         let membersByGroup = Dictionary(grouping: members, by: \.group_id)
+        let nameByID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0.name) })
 
         return RemoteSnapshot(
             people: profiles.map { row in
@@ -144,7 +162,12 @@ final class SyncService {
             },
             swipedIDs: swipes.map(\.target_id),
             blockedIDs: blocks.map(\.blocked_id),
-            likedMeCount: likedMeCount
+            likedMeCount: likedMeCount,
+            messages: messageRows.map {
+                GroupMessage(id: $0.id, groupID: $0.group_id, senderID: $0.sender_id,
+                             senderName: $0.sender_id == userID ? "You" : (nameByID[$0.sender_id] ?? "Neighbor"),
+                             text: $0.text, sentAt: $0.sent_at)
+            }
         )
     }
 
@@ -229,6 +252,18 @@ final class SyncService {
                 .execute()
             try await client.from("group_members")
                 .upsert(GroupMemberRow(group_id: group.id, member_id: userID))
+                .execute()
+        } catch {
+            log(error)
+        }
+    }
+
+    func sendMessage(_ message: GroupMessage) async {
+        do {
+            try await client.from("group_messages")
+                .insert(MessageRow(id: message.id, group_id: message.groupID,
+                                   sender_id: message.senderID, text: message.text,
+                                   sent_at: message.sentAt))
                 .execute()
         } catch {
             log(error)

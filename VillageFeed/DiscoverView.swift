@@ -6,16 +6,21 @@ struct DiscoverView: View {
     @State private var match: UserProfile?
     @State private var joinedGroup: MealGroup?
     @State private var reporting: DeckCard?
+    @State private var reportLimitHit = false
 
     var body: some View {
         NavigationStack {
             VStack {
                 if store.deck.isEmpty {
-                    ContentUnavailableView(
-                        "That's everyone nearby",
-                        systemImage: "fork.knife",
-                        description: Text("Check back soon — new cooks join VillageFeed every day.")
-                    )
+                    ScrollView {
+                        ContentUnavailableView(
+                            "That's everyone nearby",
+                            systemImage: "fork.knife",
+                            description: Text("Pull to refresh — new cooks join VillageFeed every day.")
+                        )
+                        .padding(.top, 120)
+                    }
+                    .refreshable { await refresh() }
                 } else {
                     ZStack {
                         ForEach(Array(store.deck.prefix(2).enumerated().reversed()), id: \.element.id) { index, card in
@@ -61,7 +66,9 @@ struct DiscoverView: View {
                 }
                 ForEach(ReportReason.allCases) { reason in
                     Button("Report: \(reason.rawValue)", role: .destructive) {
-                        store.report(person, reason: reason)
+                        if !store.report(person, reason: reason) {
+                            reportLimitHit = true
+                        }
                         reporting = nil
                     }
                 }
@@ -69,6 +76,11 @@ struct DiscoverView: View {
             Button("Cancel", role: .cancel) { reporting = nil }
         } message: {
             Text("Blocking hides someone instantly, just for you. Reported profiles are frozen immediately and sent for review.")
+        }
+        .alert("Report limit reached", isPresented: $reportLimitHit) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You can file \(AppStore.maxReportsPerDay) reports per day. Blocking is always available and instant.")
         }
     }
 
@@ -83,6 +95,7 @@ struct DiscoverView: View {
                     .frame(width: 64, height: 64)
                     .background(Circle().fill(.background).shadow(radius: 3))
             }
+            .accessibilityLabel("Pass")
 
             if case .person = store.deck.first {
                 Button {
@@ -94,6 +107,7 @@ struct DiscoverView: View {
                         .frame(width: 44, height: 44)
                         .background(Circle().fill(.background).shadow(radius: 2))
                 }
+                .accessibilityLabel("Report or block")
             }
 
             Button {
@@ -105,6 +119,7 @@ struct DiscoverView: View {
                     .frame(width: 64, height: 64)
                     .background(Circle().fill(.background).shadow(radius: 3))
             }
+            .accessibilityLabel("Trade")
         }
         .padding(.bottom, 8)
     }
@@ -132,6 +147,11 @@ struct DiscoverView: View {
                     dragOffset = .zero
                 }
             }
+    }
+
+    private func refresh() async {
+        guard let sync = store.sync, let snapshot = try? await sync.pull() else { return }
+        store.applyRemote(snapshot)
     }
 
     private func commit(_ card: DeckCard, liked: Bool) {

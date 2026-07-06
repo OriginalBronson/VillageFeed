@@ -18,6 +18,8 @@ final class AppStore {
     var matchedIDs: [UUID] = []
     var blockedIDs: [UUID] = []
     var reviewQueue: [ReviewCase] = []
+    var messages: [GroupMessage] = []
+    var reportDates: [Date] = []
 
     // Set when signed in against a configured Supabase backend; all writes are
     // mirrored best-effort, and pulls replace the seeded neighborhood.
@@ -39,6 +41,8 @@ final class AppStore {
             matchedIDs = state.matchedIDs
             blockedIDs = state.blockedIDs
             reviewQueue = state.reviewQueue
+            messages = state.messages
+            reportDates = state.reportDates
         } else {
             let seed = AppStore.seedPeople()
             me = UserProfile(
@@ -75,6 +79,9 @@ final class AppStore {
         swipedIDs = snapshot.swipedIDs
         blockedIDs = snapshot.blockedIDs
         remoteLikedMeCount = snapshot.likedMeCount
+        // Union by id so a message sent while offline isn't dropped by the pull.
+        let remoteIDs = Set(snapshot.messages.map(\.id))
+        messages = snapshot.messages + messages.filter { !remoteIDs.contains($0.id) }
         rebuildDeck()
         persist()
     }
@@ -87,7 +94,8 @@ final class AppStore {
         guard persistedToDisk else { return }
         Persistence.save(PersistedState(
             me: me, people: people, groups: groups,
-            swipedIDs: swipedIDs, matchedIDs: matchedIDs, blockedIDs: blockedIDs, reviewQueue: reviewQueue
+            swipedIDs: swipedIDs, matchedIDs: matchedIDs, blockedIDs: blockedIDs,
+            reviewQueue: reviewQueue, messages: messages, reportDates: reportDates
         ))
     }
 
@@ -178,6 +186,29 @@ final class AppStore {
         return groups[bIdx]
     }
 
+    // MARK: - Chat
+
+    func messages(in group: MealGroup) -> [GroupMessage] {
+        messages
+            .filter { $0.groupID == group.id && !blockedIDs.contains($0.senderID) }
+            .sorted { $0.sentAt < $1.sentAt }
+    }
+
+    @discardableResult
+    func sendMessage(_ text: String, in group: MealGroup) -> GroupMessage? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Membership is checked against current store state, not the caller's copy.
+        guard !trimmed.isEmpty,
+              let current = groups.first(where: { $0.id == group.id }),
+              current.memberIDs.contains(me.id) else { return nil }
+        let message = GroupMessage(groupID: group.id, senderID: me.id, senderName: me.name, text: trimmed)
+        messages.append(message)
+        let sync = sync
+        Task { await sync?.sendMessage(message) }
+        persist()
+        return message
+    }
+
     func members(of group: MealGroup) -> [UserProfile] {
         group.memberIDs.compactMap { id in
             if id == me.id { return me }
@@ -202,7 +233,19 @@ final class AppStore {
         persist()
     }
 
-    func report(_ person: UserProfile, reason: ReportReason) {
+    static let maxReportsPerDay = 5
+
+    var reportsRemainingToday: Int {
+        let dayAgo = Date.now.addingTimeInterval(-86_400)
+        return max(0, Self.maxReportsPerDay - reportDates.filter { $0 > dayAgo }.count)
+    }
+
+    /// Returns false when the rolling 24h report limit is hit (anti report-bombing;
+    /// instant freeze is powerful, so its trigger has to be scarce).
+    @discardableResult
+    func report(_ person: UserProfile, reason: ReportReason) -> Bool {
+        guard reportsRemainingToday > 0 else { return false }
+        reportDates.append(.now)
         let sync = sync
         Task { await sync?.fileReport(subjectID: person.id, reason: reason) }
         setStatus(.frozen, for: person.id)
@@ -214,6 +257,7 @@ final class AppStore {
             trigger: .report(reason)
         ))
         persist()
+        return true
     }
 
     func submitMyProfileForReview() {

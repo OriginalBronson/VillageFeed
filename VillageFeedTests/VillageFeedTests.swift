@@ -129,7 +129,8 @@ struct VillageFeedTests {
         store.report(store.people[2], reason: .harassment)
         let state = PersistedState(
             me: store.me, people: store.people, groups: store.groups,
-            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, blockedIDs: store.blockedIDs, reviewQueue: store.reviewQueue
+            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, blockedIDs: store.blockedIDs,
+            reviewQueue: store.reviewQueue, messages: store.messages, reportDates: store.reportDates
         )
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("vf-test-\(UUID().uuidString).json")
@@ -148,7 +149,8 @@ struct VillageFeedTests {
         store.join(store.groups[0])
         let state = PersistedState(
             me: store.me, people: store.people, groups: store.groups,
-            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, blockedIDs: store.blockedIDs, reviewQueue: store.reviewQueue
+            swipedIDs: store.swipedIDs, matchedIDs: store.matchedIDs, blockedIDs: store.blockedIDs,
+            reviewQueue: store.reviewQueue, messages: store.messages, reportDates: store.reportDates
         )
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("vf-test-\(UUID().uuidString).json")
@@ -206,6 +208,41 @@ struct VillageFeedTests {
         let high = UUID(uuidString: "FFFFFFFF-0000-0000-0000-000000000000")!
         #expect(uuidOrder(low, high))
         #expect(!uuidOrder(high, low))
+    }
+
+    @Test func groupChatOnlyWorksForMembersAndFiltersBlocked() {
+        let store = AppStore(persisted: false)
+        let outsideGroup = store.groups[0]
+        #expect(store.sendMessage("hi", in: outsideGroup) == nil) // not a member yet
+
+        store.join(outsideGroup)
+        let sent = store.sendMessage("  brisket Thursday?  ", in: outsideGroup)
+        #expect(sent?.text == "brisket Thursday?")
+        #expect(store.messages(in: outsideGroup).count == 1)
+        #expect(store.sendMessage("   ", in: outsideGroup) == nil) // whitespace-only rejected
+
+        // Messages from someone I block disappear from my view of the chat
+        let other = store.people.first { outsideGroup.memberIDs.contains($0.id) }!
+        store.messages.append(GroupMessage(groupID: outsideGroup.id, senderID: other.id,
+                                           senderName: other.name, text: "hello"))
+        #expect(store.messages(in: outsideGroup).count == 2)
+        store.block(other)
+        #expect(store.messages(in: outsideGroup).count == 1)
+    }
+
+    @Test func reportLimitStopsReportBombing() {
+        let store = AppStore(persisted: false)
+        var reported = 0
+        for person in store.people {
+            if store.report(person, reason: .scamOrSpam) { reported += 1 }
+        }
+        #expect(reported == AppStore.maxReportsPerDay)
+        #expect(store.reportsRemainingToday == 0)
+        #expect(store.pendingReviewCases.count == AppStore.maxReportsPerDay)
+        // Blocking still works after the limit
+        let last = store.people.last!
+        store.block(last)
+        #expect(store.blockedIDs.contains(last.id))
     }
 
     @Test func newProfileSubmissionGoesThroughReview() {

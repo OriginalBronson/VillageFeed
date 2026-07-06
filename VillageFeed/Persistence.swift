@@ -8,6 +8,8 @@ struct PersistedState: Codable, Equatable {
     var matchedIDs: [UUID]
     var blockedIDs: [UUID]
     var reviewQueue: [ReviewCase]
+    var messages: [GroupMessage]
+    var reportDates: [Date]
 }
 
 enum Persistence {

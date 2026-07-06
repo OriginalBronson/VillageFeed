@@ -80,8 +80,10 @@ direct reply to Bronson — never into the issue), and submit.
 cd ~/Desktop/VillageFeed
 # 1. Paste the Supabase URL + anon key from dispatch's summary into
 #    VillageFeed/SupabaseConfig.swift, rebuild, then commit + push.
-# 2. Deploy the moderation function (needs Supabase CLI: brew install supabase/tap/supabase):
+# 2. Deploy the moderation function and any migrations newer than the dispatch run
+#    (0003_group_messages.sql+). Needs Supabase CLI: brew install supabase/tap/supabase
 supabase link --project-ref <ref>
+supabase db push --include-all
 supabase functions deploy moderate-profile
 ```
 
