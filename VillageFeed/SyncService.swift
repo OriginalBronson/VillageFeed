@@ -20,6 +20,7 @@ struct DishRow: Codable, Equatable {
     var blurb: String
     var portions: Int
     var allergen_note: String
+    var photo_path: String?
 }
 
 struct GroupRow: Codable, Equatable {
@@ -68,7 +69,8 @@ struct BlockRow: Codable, Equatable {
 }
 
 extension UserProfile {
-    init(row: ProfileRow, dishes: [DishRow], photoURL: URL? = nil) {
+    init(row: ProfileRow, dishes: [DishRow], photoURL: URL? = nil,
+         dishPhotoURLs: [UUID: URL] = [:]) {
         self.init(
             id: row.id,
             name: row.name,
@@ -79,7 +81,8 @@ extension UserProfile {
             dietaryTags: row.dietary_tags.compactMap(DietaryTag.init(rawValue:)),
             dishes: dishes.map {
                 Dish(id: $0.id, name: $0.name, emoji: $0.emoji, blurb: $0.blurb,
-                     portions: $0.portions, allergenNote: $0.allergen_note)
+                     portions: $0.portions, allergenNote: $0.allergen_note,
+                     photo: dishPhotoURLs[$0.id].map(Photo.remote))
             },
             likesYou: false, // "who liked you" is entitlement-gated server data (edge function, later)
             status: ProfileStatus(rawValue: row.status) ?? .active
@@ -117,7 +120,7 @@ final class SyncService {
             .neq("id", value: userID)
             .execute().value
         let dishes: [DishRow] = try await client.from("dishes")
-            .select("id,owner_id,name,emoji,blurb,portions,allergen_note")
+            .select("id,owner_id,name,emoji,blurb,portions,allergen_note,photo_path")
             .execute().value
         let groups: [GroupRow] = try await client.from("groups")
             .select("id,name,emoji,seeking_members,open_to_merge,created_by")
@@ -151,10 +154,15 @@ final class SyncService {
         let membersByGroup = Dictionary(grouping: members, by: \.group_id)
         let nameByID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0.name) })
 
+        let dishPhotoURLs: [UUID: URL] = dishes.reduce(into: [:]) { acc, dish in
+            if let url = publicPhotoURL(dish.photo_path) { acc[dish.id] = url }
+        }
+
         return RemoteSnapshot(
             people: profiles.map { row in
                 var profile = UserProfile(row: row, dishes: dishesByOwner[row.id] ?? [],
-                                          photoURL: publicPhotoURL(row.photo_path))
+                                          photoURL: publicPhotoURL(row.photo_path),
+                                          dishPhotoURLs: dishPhotoURLs)
                 profile.likesYou = likedMe.contains(row.id)
                 return profile
             },
@@ -212,9 +220,24 @@ final class SyncService {
                 .eq("id", value: userID)
                 .execute()
             try await client.from("dishes").delete().eq("owner_id", value: userID).execute()
-            let dishRows = me.dishes.map {
-                DishRow(id: $0.id, owner_id: userID, name: $0.name, emoji: $0.emoji,
-                        blurb: $0.blurb, portions: $0.portions, allergen_note: $0.allergenNote)
+            var dishRows: [DishRow] = []
+            for dish in me.dishes {
+                var dishPhotoPath: String?
+                if case .data(let imageData) = dish.photo {
+                    let path = "\(userID.uuidString.lowercased())/dish-\(dish.id.uuidString.lowercased()).jpg"
+                    do {
+                        try await client.storage.from("photos").upload(
+                            path, data: imageData,
+                            options: FileOptions(cacheControl: "3600", contentType: "image/jpeg", upsert: true)
+                        )
+                        dishPhotoPath = path
+                    } catch {
+                        log(error)
+                    }
+                }
+                dishRows.append(DishRow(id: dish.id, owner_id: userID, name: dish.name,
+                                        emoji: dish.emoji, blurb: dish.blurb, portions: dish.portions,
+                                        allergen_note: dish.allergenNote, photo_path: dishPhotoPath))
             }
             if !dishRows.isEmpty {
                 try await client.from("dishes").insert(dishRows).execute()

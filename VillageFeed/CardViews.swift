@@ -40,7 +40,13 @@ struct PersonCard: View {
                         ForEach(person.dishes.prefix(2)) { dish in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
-                                    Text(dish.emoji)
+                                    if let photo = dish.photo {
+                                        PhotoView(photo: photo, height: 28)
+                                            .frame(width: 28)
+                                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    } else {
+                                        Text(dish.emoji)
+                                    }
                                     Text(dish.name).font(.subheadline.weight(.medium))
                                     Spacer()
                                     Text("\(dish.portions) portions")

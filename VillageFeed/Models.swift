@@ -30,15 +30,17 @@ struct Dish: Identifiable, Equatable, Hashable, Codable {
     var blurb: String
     var portions: Int
     var allergenNote: String
+    var photo: Photo?
 
     init(id: UUID = UUID(), name: String, emoji: String, blurb: String = "", portions: Int = 6,
-         allergenNote: String = "") {
+         allergenNote: String = "", photo: Photo? = nil) {
         self.id = id
         self.name = name
         self.emoji = emoji
         self.blurb = blurb
         self.portions = portions
         self.allergenNote = allergenNote
+        self.photo = photo
     }
 }
 

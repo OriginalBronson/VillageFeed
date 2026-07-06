@@ -197,6 +197,13 @@ struct VillageFeedTests {
         let url = URL(string: "https://example.supabase.co/storage/v1/object/public/photos/x/profile.jpg")!
         let withPhoto = UserProfile(row: row, dishes: [], photoURL: url)
         #expect(withPhoto.photo == .remote(url))
+
+        // Dish photos resolve through the dish-id → URL map; unmapped dishes stay emoji-only
+        let dishURL = URL(string: "https://example.supabase.co/storage/v1/object/public/photos/x/dish.jpg")!
+        let withDishPhoto = UserProfile(row: row, dishes: [dish], photoURL: nil,
+                                        dishPhotoURLs: [dish.id: dishURL])
+        #expect(withDishPhoto.dishes.first?.photo == .remote(dishURL))
+        #expect(profile.dishes.first?.photo == nil)
     }
 
     @Test func adoptIdentityRewritesMeAndGroupMembership() {

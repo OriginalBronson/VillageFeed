@@ -5,9 +5,6 @@ struct ProfileView: View {
     @Environment(AppStore.self) private var store
     @Environment(AuthSession.self) private var auth
     @State private var photoItem: PhotosPickerItem?
-    @State private var newDishName = ""
-    @State private var newDishEmoji = "🍲"
-    @State private var newDishAllergens = ""
     @State private var addingDish = false
     @State private var confirmingDeletion = false
 
@@ -71,7 +68,13 @@ struct ProfileView: View {
                     ForEach(store.me.dishes) { dish in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
-                                Text(dish.emoji)
+                                if let photo = dish.photo {
+                                    PhotoView(photo: photo, height: 36)
+                                        .frame(width: 36)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                } else {
+                                    Text(dish.emoji)
+                                }
                                 Text(dish.name)
                                 Spacer()
                                 Text("\(dish.portions) portions")
@@ -144,26 +147,8 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profile")
-            .alert("Advertise a dish", isPresented: $addingDish) {
-                TextField("Dish name", text: $newDishName)
-                TextField("Emoji", text: $newDishEmoji)
-                TextField("Allergens (e.g. contains nuts)", text: $newDishAllergens)
-                Button("Add") {
-                    let name = newDishName.trimmingCharacters(in: .whitespaces)
-                    if !name.isEmpty {
-                        store.me.dishes.append(Dish(
-                            name: name,
-                            emoji: newDishEmoji.isEmpty ? "🍲" : newDishEmoji,
-                            allergenNote: newDishAllergens.trimmingCharacters(in: .whitespaces)
-                        ))
-                        store.persist()
-                    }
-                    newDishName = ""
-                    newDishAllergens = ""
-                }
-                Button("Cancel", role: .cancel) { newDishName = ""; newDishAllergens = "" }
-            } message: {
-                Text("Declare allergens honestly — your neighbors rely on it. Dish photos come from the photo picker above.")
+            .sheet(isPresented: $addingDish) {
+                DishEditorSheet()
             }
             .confirmationDialog("Delete your account?", isPresented: $confirmingDeletion, titleVisibility: .visible) {
                 Button("Delete everything", role: .destructive) {
@@ -189,6 +174,82 @@ struct ProfileView: View {
 
     private var statusBadge: some View {
         StatusBadge(status: store.me.status)
+    }
+}
+
+struct DishEditorSheet: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var emoji = "🍲"
+    @State private var blurb = ""
+    @State private var allergens = ""
+    @State private var portions = 6
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photoData: Data?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("The dish") {
+                    TextField("Name (e.g. Sunday Ragù)", text: $name)
+                    TextField("Emoji", text: $emoji)
+                    TextField("One-line description", text: $blurb)
+                    Stepper("Portions to trade: \(portions)", value: $portions, in: 1...50)
+                }
+                Section("Photo") {
+                    HStack {
+                        if let photoData {
+                            PhotoView(photo: .data(photoData), height: 64)
+                                .frame(width: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        PhotosPicker(selection: $photoItem, matching: .images) {
+                            Label(photoData == nil ? "Add a photo" : "Change photo", systemImage: "camera")
+                        }
+                    }
+                    Text("Dishes with photos get traded with most.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Allergens") {
+                    TextField("e.g. contains nuts; kitchen handles shellfish", text: $allergens, axis: .vertical)
+                    Text("Declare allergens honestly — your neighbors rely on it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Advertise a dish")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        store.me.dishes.append(Dish(
+                            name: name.trimmingCharacters(in: .whitespaces),
+                            emoji: emoji.isEmpty ? "🍲" : emoji,
+                            blurb: blurb.trimmingCharacters(in: .whitespaces),
+                            portions: portions,
+                            allergenNote: allergens.trimmingCharacters(in: .whitespaces),
+                            photo: photoData.map(Photo.data)
+                        ))
+                        store.persist()
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .onChange(of: photoItem) {
+                Task {
+                    if let data = try? await photoItem?.loadTransferable(type: Data.self) {
+                        photoData = data
+                    }
+                }
+            }
+        }
+        .presentationDetents([.large])
     }
 }
 

@@ -217,6 +217,10 @@ struct PersonDetailSheet: View {
                         Text("Dishes on offer").font(.headline)
                         ForEach(person.dishes) { dish in
                             VStack(alignment: .leading, spacing: 3) {
+                                if let photo = dish.photo {
+                                    PhotoView(photo: photo, height: 140)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
                                 HStack {
                                     Text(dish.emoji).font(.title3)
                                     Text(dish.name).font(.subheadline.weight(.semibold))
