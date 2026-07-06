@@ -6,7 +6,7 @@ migrations 0001/0002 applied, Google provider enabled, `ANTHROPIC_API_KEY` set
 
 Work top to bottom in Google Chrome; record outcomes for the final summary.
 
-## 1. Apply the two new migrations
+## 1. Apply the three new migrations
 
 In https://supabase.com/dashboard → project `villagefeed` → **SQL Editor**:
 
@@ -15,6 +15,8 @@ In https://supabase.com/dashboard → project `villagefeed` → **SQL Editor**:
    — note that and continue.
 2. New query → paste **Appendix B** (realtime publication) → Run. If it errors
    with "already member of publication", same deal — note and continue.
+3. New query → paste **Appendix C** (paid-tier column lock, a security fix) →
+   Run. This one is safe to re-run.
 
 ## 2. Auth settings for TestFlight-era testing
 
@@ -95,4 +97,19 @@ create policy "members write as themselves"
 
 ```sql
 alter publication supabase_realtime add table public.group_messages;
+```
+
+## Appendix C — 0005_lock_profile_columns.sql
+
+```sql
+-- Security fix: clients could UPDATE their own profiles row including is_plus
+-- (the RLS policy only pinned status), silently unlocking the paid tier.
+-- Postgres column-level privileges close this: drop the blanket UPDATE grant
+-- and re-grant only the user-editable columns. is_plus and status are then
+-- writable solely by the service role (entitlement webhook / moderation).
+
+revoke update on table public.profiles from authenticated, anon;
+
+grant update (name, neighborhood, bio, photo_path, dietary_tags, birth_year, updated_at)
+  on table public.profiles to authenticated;
 ```
