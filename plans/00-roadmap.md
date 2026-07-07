@@ -15,14 +15,25 @@ self-contained.
 | 5 | [05-feature-handoff-planner.md](05-feature-handoff-planner.md) | Closing the core loop: actually scheduling the food handoff | No, but the product doesn't deliver its promise without it |
 | 6 | [06-feature-discovery-filters.md](06-feature-discovery-filters.md) | Dietary filters + structured neighborhoods so the deck shows food you can eat, from people actually near you | No, but the #1 predictable complaint |
 | 7 | [07-feature-chat-upgrade.md](07-feature-chat-upgrade.md) | A real chat screen (currently a Form section), message reporting, unread state | Message reporting is a safety-launch item |
+| 8 | [08-sync-integrity.md](08-sync-integrity.md) | Three found data-loss bugs (profile-photo erasure, dish delete-then-insert, divergent match truth) + an outbox for offline writes | **B1–B3 bug fixes: yes** |
+| 9 | [09-terms-and-food-law.md](09-terms-and-food-law.md) | Terms of Service (none exists today), prohibited-foods policy, counsel checklist for cottage-food law | **Yes — ToS is a launch gate** |
+| 10 | [10-trust-and-reputation.md](10-trust-and-reputation.md) | Trade counts, tenure badges, verified cook — trust signals from actions, not star ratings | No — post-launch |
+| 11 | [11-testing-and-release.md](11-testing-and-release.md) | Sync + RLS test coverage, release pipeline, TestFlight protocol, device matrix | Pipeline + device pass: yes |
+| 12 | [12-launch-density-playbook.md](12-launch-density-playbook.md) | Founding-neighborhood strategy, invite loop, waitlist, expansion rule | No code-blocker, but start recruiting now — longest pole |
 
 ## Sequencing
+
+**Phase 0 — Start immediately, runs in parallel with everything.**
+Plan 08 bug fixes B1–B3 (active data loss for any tester), plan 09 ToS draft +
+counsel booking, and plan 12 founding-cook recruiting (the longest pole in the
+whole schedule and it's not engineering).
 
 **Phase 1 — Submission blockers (do first, mostly independent).**
 Everything in plan 01, plus from plan 02: server-side report limit, bidirectional
 blocks, re-enable email confirmation. From plan 03: the P1 fixes (remove
 moderation/demo surfaces from the consumer build, paywall legal links, seeded fake
-profiles). Target: a build that would pass App Review.
+profiles). Plan 11's release pipeline lands here so every TestFlight build is
+CI-built. Target: a build that would pass App Review.
 
 **Phase 2 — "Don't get 1-starred in week one."**
 Plan 04 (notifications) and plan 06 (filters + neighborhoods). These are the two gaps
@@ -30,11 +41,13 @@ every user hits in their first session. Ship in the launch build if timeline all
 first update otherwise.
 
 **Phase 3 — Product completeness.**
-Plan 05 (handoff planner) and plan 07 (chat upgrade). These turn matches into actual
-traded meals — retention lives here.
+Plan 05 (handoff planner), plan 07 (chat upgrade), plan 08's outbox, and plan 10 v1
+(trade counts ride plan 05's schema). These turn matches into actual traded meals —
+retention lives here.
 
-**Continuous:** TestFlight from the end of Phase 1. Real-device testing has not
-happened yet (per repo history); do it before any external beta.
+**Continuous:** TestFlight from the end of Phase 1 following plan 11's protocol.
+Real-device testing has not happened yet (per repo history); do it before any
+external beta. Plan 12's pilot begins the day external TestFlight opens.
 
 ## Current state (verified against the code, 2026-07-07)
 
@@ -57,5 +70,8 @@ happened yet (per repo history); do it before any external beta.
 - [ ] Plan 02 security items done (server report limit, bidirectional block, email confirm)
 - [ ] Plan 03 P1 items done (no internal tooling in consumer UI, no fake seeded people in prod, paywall links)
 - [ ] Message reporting from plan 07 (SAFETY-NOTES launch item)
+- [ ] Plan 08 bugs B1–B3 fixed (photo/dish data loss, match divergence)
+- [ ] Terms of Service hosted and counsel-reviewed; onboarding gate links it (plan 09)
+- [ ] Release builds come from CI; device checklist passed (plan 11)
 - [ ] App runs correctly on a physical iPhone signed in against production Supabase
 - [ ] One full end-to-end trade tested by two real accounts on TestFlight
