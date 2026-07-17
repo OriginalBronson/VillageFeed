@@ -470,6 +470,31 @@ struct VillageFeedTests {
         #expect(store.me.status == .frozen)
     }
 
+    // MARK: - Likes (paid tier)
+
+    @Test func freeTierSnapshotShowsCountWithoutIdentities() {
+        let store = AppStore(persisted: false)
+        // Synced free tier: who_liked_me_count() returns a number but
+        // who_liked_me() is RPC-gated on is_plus, so no profile carries likesYou.
+        store.applyRemote(SyncService.RemoteSnapshot(
+            people: [], groups: [], swipedIDs: [], blockedIDs: [],
+            likedMeCount: 4, messages: []))
+        #expect(store.likedMe.isEmpty)
+        #expect(store.likedMeCount == 4)
+    }
+
+    @Test func plusSnapshotRevealsLikerIdentities() {
+        let store = AppStore(persisted: false)
+        var liker = remoteProfile(id: UUID(), name: "Ana", neighborhood: "Hillcrest",
+                                  status: "active")
+        liker.likesYou = true
+        store.applyRemote(SyncService.RemoteSnapshot(
+            people: [liker], groups: [], swipedIDs: [], blockedIDs: [],
+            likedMeCount: 1, messages: []))
+        #expect(store.likedMe.map(\.name) == ["Ana"])
+        #expect(store.likedMeCount == 1)
+    }
+
     @Test func storagePathRecoveredFromPublicPhotoURL() {
         let url = URL(string: "https://proj.supabase.co/storage/v1/object/public/photos/abc/dish-1.jpg")!
         #expect(SyncService.storagePath(fromPublicURL: url) == "abc/dish-1.jpg")

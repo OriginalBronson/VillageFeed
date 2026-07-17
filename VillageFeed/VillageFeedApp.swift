@@ -57,6 +57,7 @@ struct VillageFeedApp: App {
             .onChange(of: auth.state) {
                 store.messageSubscription?.cancel()
                 store.messageSubscription = nil
+                entitlements.appAccountToken = auth.state == .signedIn ? auth.userID : nil
                 guard auth.state == .signedIn, let client = auth.client, let uid = auth.userID else {
                     store.sync = nil
                     return
@@ -72,11 +73,26 @@ struct VillageFeedApp: App {
                     ? .ready : .unknown
                 Task {
                     store.applyMyRemoteProfile(await sync.fetchMyProfile())
+                    // Report the StoreKit entitlement before the first pull so
+                    // who_liked_me() identities are already unlocked for subscribers.
+                    await sync.syncEntitlement(jws: entitlements.latestTransactionJWS)
                     if let snapshot = try? await sync.pull() {
                         store.applyRemote(snapshot)
                     }
                     store.messageSubscription = sync.subscribeToMessages { [weak store] row in
                         store?.receiveRemoteMessage(row)
+                    }
+                }
+            }
+            // A purchase (or lapse) mid-session: mirror it server-side, then
+            // re-pull so the Likes identities appear without an app restart.
+            .onChange(of: entitlements.hasPlus) {
+                guard let sync = store.sync else { return }
+                let jws = entitlements.latestTransactionJWS
+                Task {
+                    await sync.syncEntitlement(jws: jws)
+                    if let snapshot = try? await sync.pull() {
+                        store.applyRemote(snapshot)
                     }
                 }
             }
