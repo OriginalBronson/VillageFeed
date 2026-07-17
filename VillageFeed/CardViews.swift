@@ -12,6 +12,7 @@ struct CardView: View {
 }
 
 struct PersonCard: View {
+    @Environment(AppStore.self) private var store
     let person: UserProfile
 
     var body: some View {
@@ -22,9 +23,39 @@ struct PersonCard: View {
                 HStack {
                     Text(person.name).font(.title2.bold())
                     Spacer()
-                    Label(person.neighborhood, systemImage: "mappin.and.ellipse")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Label(person.neighborhood, systemImage: "mappin.and.ellipse")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        // Honest relative distance from coarse ZIPs (plan 06-B)
+                        // — a stranger's typed label alone can't tell you that.
+                        if let proximity = AreaProximity(mine: store.me.areaCode,
+                                                        theirs: person.areaCode).label {
+                            Text(proximity)
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.green.opacity(0.15)))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                }
+
+                // Trust signals from actions, not opinions (plan 10 v1) —
+                // positive-only in public.
+                if (person.tradesCount ?? 0) > 0 || person.memberSince != nil {
+                    HStack(spacing: 8) {
+                        if let trades = person.tradesCount, trades > 0 {
+                            Label("\(trades) trade\(trades == 1 ? "" : "s")", systemImage: "checkmark.seal.fill")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.green)
+                        }
+                        if let since = person.memberSince {
+                            Text("Here since \(since.formatted(.dateTime.month(.wide).year()))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Text(person.bio)
@@ -71,6 +102,23 @@ struct PersonCard: View {
         }
         .background(RoundedRectangle(cornerRadius: 24).fill(.background).shadow(radius: 8, y: 4))
         .clipShape(RoundedRectangle(cornerRadius: 24))
+        // One coherent VoiceOver element per card (plan 03-X2), instead of a
+        // pile of unlabeled fragments.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        var parts = ["\(person.name), \(person.neighborhood)."]
+        if !person.bio.isEmpty { parts.append(person.bio) }
+        if !person.dishes.isEmpty {
+            parts.append("Offering " + person.dishes.prefix(2)
+                .map { "\($0.name), \($0.portions) portions" }.joined(separator: "; ") + ".")
+        }
+        if !person.dietaryTags.isEmpty {
+            parts.append("Dietary needs: " + person.dietaryTags.map(\.rawValue).joined(separator: ", ") + ".")
+        }
+        return parts.joined(separator: " ")
     }
 }
 
@@ -117,6 +165,8 @@ struct GroupCard: View {
         }
         .background(RoundedRectangle(cornerRadius: 24).fill(.background).shadow(radius: 8, y: 4))
         .clipShape(RoundedRectangle(cornerRadius: 24))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Supper group \(group.name), \(group.memberIDs.count) members, looking for cooks. Members: \(store.members(of: group).map(\.name).joined(separator: ", ")). Swipe right to join.")
     }
 }
 
@@ -166,28 +216,54 @@ struct PillRow: View {
     let tags: [DietaryTag]
 
     var body: some View {
-        FlowLayoutish(items: tags.map(\.rawValue))
+        FlowLayout(spacing: 6) {
+            ForEach(tags) { tag in
+                Text(tag.rawValue)
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.orange.opacity(0.15)))
+                    .foregroundStyle(.orange)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Dietary needs: \(tags.map(\.rawValue).joined(separator: ", "))")
     }
 }
 
-// ponytail: two-row wrap approximation instead of a real flow Layout — fine for ≤6 pills
-struct FlowLayoutish: View {
-    let items: [String]
+/// A real wrapping flow Layout (plan 03-X2): the old fixed-3-per-row
+/// approximation broke at Dynamic Type XXL.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(stride(from: 0, to: items.count, by: 3)), id: \.self) { start in
-                HStack(spacing: 6) {
-                    ForEach(items[start..<min(start + 3, items.count)], id: \.self) { item in
-                        Text(item)
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Capsule().fill(Color.orange.opacity(0.15)))
-                            .foregroundStyle(.orange)
-                    }
-                }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
             }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth == .infinity ? x : maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }

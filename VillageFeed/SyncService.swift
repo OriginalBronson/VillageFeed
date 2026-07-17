@@ -10,6 +10,24 @@ struct ProfileRow: Codable, Equatable {
     var dietary_tags: [String]
     var status: String
     var photo_path: String?
+    // Coarse area (plan 06-B); optional for pre-0010 schemas.
+    var area_code: String?
+    // Tenure signal (plan 10); optional for select lists that omit it.
+    var created_at: Date?
+
+    init(id: UUID, name: String, neighborhood: String, bio: String,
+         dietary_tags: [String], status: String, photo_path: String?,
+         area_code: String? = nil, created_at: Date? = nil) {
+        self.id = id
+        self.name = name
+        self.neighborhood = neighborhood
+        self.bio = bio
+        self.dietary_tags = dietary_tags
+        self.status = status
+        self.photo_path = photo_path
+        self.area_code = area_code
+        self.created_at = created_at
+    }
 }
 
 struct DishRow: Codable, Equatable {
@@ -35,6 +53,15 @@ struct GroupRow: Codable, Equatable {
 struct GroupMemberRow: Codable, Equatable {
     var group_id: UUID
     var member_id: UUID
+    // Unread model (plan 07); optional so pushes can omit it and pre-0009
+    // schemas still decode.
+    var last_read_at: Date?
+
+    init(group_id: UUID, member_id: UUID, last_read_at: Date? = nil) {
+        self.group_id = group_id
+        self.member_id = member_id
+        self.last_read_at = last_read_at
+    }
 }
 
 struct SwipeRow: Codable, Equatable {
@@ -48,6 +75,16 @@ struct ReportRow: Codable, Equatable {
     var reporter_id: UUID
     var subject_id: UUID
     var reason: String
+    // Message reports attach the message text (plan 07-§3); optional so the
+    // insert also works against a pre-0009 schema.
+    var detail: String?
+
+    init(reporter_id: UUID, subject_id: UUID, reason: String, detail: String? = nil) {
+        self.reporter_id = reporter_id
+        self.subject_id = subject_id
+        self.reason = reason
+        self.detail = detail
+    }
 }
 
 struct MatchRow: Codable, Equatable {
@@ -61,11 +98,72 @@ struct MessageRow: Codable, Equatable {
     var sender_id: UUID
     var text: String
     var sent_at: Date
+    var is_system: Bool?
+
+    init(id: UUID, group_id: UUID, sender_id: UUID, text: String,
+         sent_at: Date, is_system: Bool? = nil) {
+        self.id = id
+        self.group_id = group_id
+        self.sender_id = sender_id
+        self.text = text
+        self.sent_at = sent_at
+        self.is_system = is_system
+    }
 }
 
 struct BlockRow: Codable, Equatable {
     var blocker_id: UUID
     var blocked_id: UUID
+}
+
+// Handoff planner rows (plan 05). week_start is a Postgres `date` — it
+// travels as "yyyy-MM-dd", which is exactly the client's WeekClock format.
+struct PledgeRow: Codable, Equatable {
+    var id: UUID
+    var group_id: UUID
+    var member_id: UUID
+    var dish_id: UUID?
+    var dish_name: String
+    var dish_emoji: String
+    var portions: Int
+    var week_start: String
+}
+
+struct HandoffRow: Codable, Equatable {
+    var id: UUID
+    var group_id: UUID
+    var spot: String
+    var at: Date
+    var proposed_by: UUID
+    var week_start: String
+}
+
+struct RSVPRow: Codable, Equatable {
+    var handoff_id: UUID
+    var member_id: UUID
+    var status: String
+    var checkin: String?
+    var no_show_member: UUID?
+
+    init(handoff_id: UUID, member_id: UUID, status: String, checkin: String? = nil,
+         no_show_member: UUID? = nil) {
+        self.handoff_id = handoff_id
+        self.member_id = member_id
+        self.status = status
+        self.checkin = checkin
+        self.no_show_member = no_show_member
+    }
+}
+
+struct TradeCountRow: Codable, Equatable {
+    var member_id: UUID
+    var trades: Int
+}
+
+struct IncidentRow: Codable, Equatable {
+    var dish_id: UUID
+    var reporter_id: UUID
+    var detail: String
 }
 
 extension UserProfile {
@@ -85,16 +183,19 @@ extension UserProfile {
                      photo: dishPhotoURLs[$0.id].map(Photo.remote))
             },
             likesYou: false, // "who liked you" is entitlement-gated server data (edge function, later)
-            status: ProfileStatus(rawValue: row.status) ?? .active
+            status: ProfileStatus(rawValue: row.status) ?? .active,
+            areaCode: (row.area_code?.isEmpty ?? true) ? nil : row.area_code,
+            memberSince: row.created_at
         )
     }
 }
 
-// Thin last-write-wins sync. Every call is best-effort (try? + log): the local
-// store is the UI's source of truth and the next pull reconciles.
-// ponytail: no offline queue/retry — add one before real multi-device use.
+// The store's writes flow through the Outbox (plan 08): AppStore enqueues
+// PendingOps and the drainer calls perform(_:), so a dead spot can no longer
+// silently drop a swipe, message, block, or report. Reads (pull/fetch) stay
+// direct. Ops are idempotent so retries are safe.
 @MainActor
-final class SyncService {
+final class SyncService: SyncBackend {
     private let client: SupabaseClient
     private let userID: UUID
 
@@ -112,22 +213,46 @@ final class SyncService {
         var blockedIDs: [UUID]
         var likedMeCount: Int
         var messages: [GroupMessage]
+        // My server-side read markers per group (plan 07 unread model).
+        var lastReadAt: [UUID: Date] = [:]
+        // Handoff planner (plan 05); empty against a pre-0012 schema.
+        var pledges: [WeekPledge] = []
+        var handoffs: [Handoff] = []
+        var rsvps: [HandoffRSVP] = []
     }
 
     func pull() async throws -> RemoteSnapshot {
-        let profiles: [ProfileRow] = try await client.from("profiles")
-            .select("id,name,neighborhood,bio,dietary_tags,status,photo_path")
+        let profiles: [ProfileRow]
+        if let withArea: [ProfileRow] = try? await client.from("profiles")
+            .select("id,name,neighborhood,bio,dietary_tags,status,photo_path,area_code,created_at")
             .neq("id", value: userID)
-            .execute().value
+            .execute().value {
+            profiles = withArea
+        } else {
+            // Pre-0010 schema fallback.
+            profiles = try await client.from("profiles")
+                .select("id,name,neighborhood,bio,dietary_tags,status,photo_path")
+                .neq("id", value: userID)
+                .execute().value
+        }
         let dishes: [DishRow] = try await client.from("dishes")
             .select("id,owner_id,name,emoji,blurb,portions,allergen_note,photo_path")
             .execute().value
         let groups: [GroupRow] = try await client.from("groups")
             .select("id,name,emoji,seeking_members,open_to_merge,created_by")
             .execute().value
-        let members: [GroupMemberRow] = try await client.from("group_members")
-            .select("group_id,member_id")
-            .execute().value
+        // last_read_at tolerates a pre-0009 schema: fall back to the bare
+        // column list rather than failing the whole pull.
+        let members: [GroupMemberRow]
+        if let withReadMarkers: [GroupMemberRow] = try? await client.from("group_members")
+            .select("group_id,member_id,last_read_at")
+            .execute().value {
+            members = withReadMarkers
+        } else {
+            members = try await client.from("group_members")
+                .select("group_id,member_id")
+                .execute().value
+        }
         let swipes: [SwipeRow] = try await client.from("swipes")
             .select("swiper_id,target_id,target_kind,liked")
             .eq("swiper_id", value: userID)
@@ -139,11 +264,38 @@ final class SyncService {
 
         // Chat: RLS scopes rows to groups I'm a member of. Tolerate the table
         // not existing yet (migration 0003 may lag the app build).
-        let messageRows: [MessageRow] = (try? await client.from("group_messages")
-            .select("id,group_id,sender_id,text,sent_at")
+        let messageRows: [MessageRow]
+        if let withSystem: [MessageRow] = try? await client.from("group_messages")
+            .select("id,group_id,sender_id,text,sent_at,is_system")
             .order("sent_at", ascending: true)
             .limit(500)
+            .execute().value {
+            messageRows = withSystem
+        } else {
+            messageRows = (try? await client.from("group_messages")
+                .select("id,group_id,sender_id,text,sent_at")
+                .order("sent_at", ascending: true)
+                .limit(500)
+                .execute().value) ?? []
+        }
+
+        // Handoff planner (plan 05): RLS scopes all three to my groups.
+        // Empty against a pre-0012 schema.
+        let pledgeRows: [PledgeRow] = (try? await client.from("week_pledges")
+            .select("id,group_id,member_id,dish_id,dish_name,dish_emoji,portions,week_start")
             .execute().value) ?? []
+        let handoffRows: [HandoffRow] = (try? await client.from("handoffs")
+            .select("id,group_id,spot,at,proposed_by,week_start")
+            .execute().value) ?? []
+        let rsvpRows: [RSVPRow] = (try? await client.from("handoff_rsvps")
+            .select("handoff_id,member_id,status,checkin,no_show_member")
+            .execute().value) ?? []
+        // Trade counts (plan 10 v1) — the deliberate public window over the
+        // members-only planner tables. Empty pre-0013.
+        let tradeCounts: [TradeCountRow] = (try? await client.from("trade_counts")
+            .select("member_id,trades")
+            .execute().value) ?? []
+        let tradesByMember = Dictionary(uniqueKeysWithValues: tradeCounts.map { ($0.member_id, $0.trades) })
 
         // Likes: count is free-tier; identities come back empty unless is_plus (RPC-gated).
         let likedMeCount: Int = (try? await client.rpc("who_liked_me_count").execute().value) ?? 0
@@ -164,6 +316,7 @@ final class SyncService {
                                           photoURL: publicPhotoURL(row.photo_path),
                                           dishPhotoURLs: dishPhotoURLs)
                 profile.likesYou = likedMe.contains(row.id)
+                profile.tradesCount = tradesByMember[row.id]
                 return profile
             },
             groups: groups.map { g in
@@ -177,7 +330,25 @@ final class SyncService {
             messages: messageRows.map {
                 GroupMessage(id: $0.id, groupID: $0.group_id, senderID: $0.sender_id,
                              senderName: $0.sender_id == userID ? "You" : (nameByID[$0.sender_id] ?? "Neighbor"),
-                             text: $0.text, sentAt: $0.sent_at)
+                             text: $0.text, sentAt: $0.sent_at, isSystem: $0.is_system)
+            },
+            lastReadAt: members.reduce(into: [:]) { acc, row in
+                if row.member_id == userID, let at = row.last_read_at { acc[row.group_id] = at }
+            },
+            pledges: pledgeRows.map {
+                WeekPledge(id: $0.id, groupID: $0.group_id, memberID: $0.member_id,
+                           dishID: $0.dish_id, dishName: $0.dish_name, dishEmoji: $0.dish_emoji,
+                           portions: $0.portions, weekStart: $0.week_start)
+            },
+            handoffs: handoffRows.map {
+                Handoff(id: $0.id, groupID: $0.group_id, spot: $0.spot, at: $0.at,
+                        proposedBy: $0.proposed_by, weekStart: $0.week_start)
+            },
+            rsvps: rsvpRows.map {
+                HandoffRSVP(handoffID: $0.handoff_id, memberID: $0.member_id,
+                            going: $0.status == "going",
+                            checkin: $0.checkin.flatMap(HandoffRSVP.Checkin.init(rawValue:)),
+                            noShowMember: $0.no_show_member)
             }
         )
     }
@@ -186,11 +357,20 @@ final class SyncService {
     /// nil on any failure so callers can fall back to local state.
     func fetchMyProfile() async -> UserProfile? {
         do {
-            let row: ProfileRow = try await client.from("profiles")
-                .select("id,name,neighborhood,bio,dietary_tags,status,photo_path")
+            let row: ProfileRow
+            if let withArea: ProfileRow = try? await client.from("profiles")
+                .select("id,name,neighborhood,bio,dietary_tags,status,photo_path,area_code")
                 .eq("id", value: userID)
                 .single()
-                .execute().value
+                .execute().value {
+                row = withArea
+            } else {
+                row = try await client.from("profiles")
+                    .select("id,name,neighborhood,bio,dietary_tags,status,photo_path")
+                    .eq("id", value: userID)
+                    .single()
+                    .execute().value
+            }
             let dishes: [DishRow] = try await client.from("dishes")
                 .select("id,owner_id,name,emoji,blurb,portions,allergen_note,photo_path")
                 .eq("owner_id", value: userID)
@@ -218,6 +398,13 @@ final class SyncService {
         var bio: String
         var dietary_tags: [String]
         var photo_path: String?
+        // ToS acceptance record (plan 09-C); omitted when never accepted.
+        var tos_version: String?
+        var tos_accepted_at: Date?
+        // Coarse area (plan 06-B); omitted when unset (pre-0010 safe).
+        var area_code: String?
+        // Invite attribution (plan 12-B); omitted when never set.
+        var referred_by: String?
     }
 
     private func publicPhotoURL(_ path: String?) -> URL? {
@@ -234,7 +421,7 @@ final class SyncService {
         return String(path[range.upperBound...])
     }
 
-    func pushProfile(_ me: UserProfile) async {
+    func pushProfile(_ me: UserProfile) async throws {
         var photoPath: String?
         if case .data(let imageData) = me.photo {
             let path = "\(userID.uuidString.lowercased())/profile.jpg"
@@ -249,14 +436,19 @@ final class SyncService {
                 log(error) // profile text still syncs without the photo
             }
         }
-        do {
-            try await client.from("profiles")
+        try await client.from("profiles")
                 .update(ProfileUpdate(name: me.name, neighborhood: me.neighborhood,
                                       bio: me.bio, dietary_tags: me.dietaryTags.map(\.rawValue),
-                                      photo_path: photoPath))
+                                      photo_path: photoPath,
+                                      tos_version: LegalDocs.acceptedVersion,
+                                      tos_accepted_at: LegalDocs.acceptedAt,
+                                      area_code: me.areaCode,
+                                      referred_by: {
+                                          let code = UserDefaults.standard.string(forKey: "referredBy") ?? ""
+                                          return code.isEmpty ? nil : code
+                                      }()))
                 .eq("id", value: userID)
                 .execute()
-            try await client.from("dishes").delete().eq("owner_id", value: userID).execute()
             var dishRows: [DishRow] = []
             for dish in me.dishes {
                 var dishPhotoPath: String?
@@ -281,107 +473,214 @@ final class SyncService {
                                         emoji: dish.emoji, blurb: dish.blurb, portions: dish.portions,
                                         allergen_note: dish.allergenNote, photo_path: dishPhotoPath))
             }
+            // Upsert-then-prune instead of delete-then-insert: a network drop
+            // mid-push can only leave stale extras behind (cleaned up by the
+            // next push), never wipe the account's dishes (bug 08-B2).
             if !dishRows.isEmpty {
-                try await client.from("dishes").insert(dishRows).execute()
+                try await client.from("dishes").upsert(dishRows).execute()
+                let keptIDs = dishRows.map { $0.id.uuidString.lowercased() }.joined(separator: ",")
+                try await client.from("dishes").delete()
+                    .eq("owner_id", value: userID)
+                    .not("id", operator: .in, value: "(\(keptIDs))")
+                    .execute()
+            } else {
+                try await client.from("dishes").delete().eq("owner_id", value: userID).execute()
             }
-        } catch {
-            log(error)
-        }
     }
 
-    /// Records the swipe; for right-swipes on people, returns true when the like is mutual
-    /// (and persists the match row).
+    /// Records the swipe; for right-swipes on people, returns true when the
+    /// like is mutual. The match row itself is created by the server-side
+    /// trigger (migration 0008); the RPC answer just drives the sheet.
     @discardableResult
-    func recordSwipe(targetID: UUID, kind: String, liked: Bool) async -> Bool {
-        do {
-            try await client.from("swipes")
-                .upsert(SwipeRow(swiper_id: userID, target_id: targetID, target_kind: kind, liked: liked))
-                .execute()
-            guard liked, kind == "person" else { return false }
-            let mutual: Bool = try await client
-                .rpc("mutual_like", params: ["other": targetID])
-                .execute().value
-            if mutual {
-                let (a, b) = uuidOrder(userID, targetID) ? (userID, targetID) : (targetID, userID)
-                try await client.from("matches").upsert(MatchRow(a: a, b: b)).execute()
-            }
-            return mutual
-        } catch {
-            log(error)
-            return false
-        }
+    func recordSwipe(targetID: UUID, kind: String, liked: Bool) async throws -> Bool {
+        try await client.from("swipes")
+            .upsert(SwipeRow(swiper_id: userID, target_id: targetID, target_kind: kind, liked: liked))
+            .execute()
+        guard liked, kind == "person" else { return false }
+        let mutual: Bool = try await client
+            .rpc("mutual_like", params: ["other": targetID])
+            .execute().value
+        return mutual
     }
 
-    func fileReport(subjectID: UUID, reason: ReportReason) async {
-        do {
-            try await client.from("reports")
-                .insert(ReportRow(reporter_id: userID, subject_id: subjectID, reason: reason.rawValue))
-                .execute()
-        } catch {
-            log(error)
-        }
+    func fileReport(subjectID: UUID, reason: ReportReason, detail: String? = nil) async throws {
+        try await client.from("reports")
+            .insert(ReportRow(reporter_id: userID, subject_id: subjectID,
+                              reason: reason.rawValue, detail: detail))
+            .execute()
     }
 
-    func recordBlock(blockedID: UUID) async {
-        do {
-            try await client.from("blocks")
-                .upsert(BlockRow(blocker_id: userID, blocked_id: blockedID))
-                .execute()
-        } catch {
-            log(error)
-        }
+    func recordBlock(blockedID: UUID) async throws {
+        try await client.from("blocks")
+            .upsert(BlockRow(blocker_id: userID, blocked_id: blockedID))
+            .execute()
     }
 
-    func createGroup(_ group: MealGroup) async {
-        do {
+    func removeBlock(blockedID: UUID) async throws {
+        try await client.from("blocks").delete()
+            .eq("blocker_id", value: userID)
+            .eq("blocked_id", value: blockedID)
+            .execute()
+    }
+
+    private struct GroupUpdate: Encodable {
+        var name: String
+        var emoji: String
+        var seeking_members: Bool
+        var open_to_merge: Bool
+    }
+
+    /// Syncs member-editable group settings (rename/emoji — plan 03-G4 — and
+    /// the seeking/merge toggles, which previously never left the device).
+    func updateGroup(_ group: MealGroup) async throws {
+        try await client.from("groups")
+            .update(GroupUpdate(name: group.name, emoji: group.emoji,
+                                seeking_members: group.seekingMembers,
+                                open_to_merge: group.openToMerge))
+            .eq("id", value: group.id)
+            .execute()
+    }
+
+    func createGroup(_ group: MealGroup) async throws {
+        // Insert is made retry-safe with an existence check (the id is
+        // client-generated, so a retry after a half-applied create resumes).
+        let existing: [GroupRow] = (try? await client.from("groups")
+            .select("id,name,emoji,seeking_members,open_to_merge,created_by")
+            .eq("id", value: group.id)
+            .execute().value) ?? []
+        if existing.isEmpty {
             try await client.from("groups")
                 .insert(GroupRow(id: group.id, name: group.name, emoji: group.emoji,
                                  seeking_members: group.seekingMembers,
                                  open_to_merge: group.openToMerge, created_by: userID))
                 .execute()
-            try await client.from("group_members")
-                .upsert(GroupMemberRow(group_id: group.id, member_id: userID))
-                .execute()
-        } catch {
-            log(error)
         }
+        try await client.from("group_members")
+            .upsert(GroupMemberRow(group_id: group.id, member_id: userID))
+            .execute()
     }
 
-    func sendMessage(_ message: GroupMessage) async {
+    /// Insert by client-generated UUID — a retry that races its own success
+    /// hits the primary key and is treated as delivered.
+    func sendMessage(_ message: GroupMessage) async throws {
         do {
             try await client.from("group_messages")
                 .insert(MessageRow(id: message.id, group_id: message.groupID,
                                    sender_id: message.senderID, text: message.text,
-                                   sent_at: message.sentAt))
+                                   sent_at: message.sentAt, is_system: message.system ? true : nil))
                 .execute()
         } catch {
-            log(error)
+            // Duplicate key = the earlier attempt actually landed.
+            if error.localizedDescription.contains("duplicate key") { return }
+            throw error
         }
     }
 
-    func mergeGroups(source: UUID, dest: UUID) async {
-        do {
-            try await client.rpc("merge_groups", params: ["source": source, "dest": dest]).execute()
-        } catch {
-            log(error)
-        }
+    /// RLS restricts deletion to the sender's own rows (plan 07-§3).
+    func deleteMessage(id: UUID) async throws {
+        try await client.from("group_messages").delete()
+            .eq("id", value: id)
+            .eq("sender_id", value: userID)
+            .execute()
     }
 
-    func joinGroup(groupID: UUID) async {
+    private struct ReadMarker: Encodable {
+        var last_read_at: Date
+    }
+
+    /// Advances my read marker for a group (plan 07-§2 unread model; plan 04
+    /// reuses it to suppress pushes for the chat you're looking at).
+    func markRead(groupID: UUID, at date: Date) async throws {
+        try await client.from("group_members")
+            .update(ReadMarker(last_read_at: date))
+            .eq("group_id", value: groupID)
+            .eq("member_id", value: userID)
+            .execute()
+    }
+
+    func mergeGroups(source: UUID, dest: UUID) async throws {
+        try await client.rpc("merge_groups", params: ["source": source, "dest": dest]).execute()
+    }
+
+    func joinGroup(groupID: UUID) async throws {
+        try await client.from("group_members")
+            .upsert(GroupMemberRow(group_id: groupID, member_id: userID))
+            .execute()
+    }
+
+    func leaveGroup(groupID: UUID) async throws {
+        try await client.from("group_members").delete()
+            .eq("group_id", value: groupID)
+            .eq("member_id", value: userID)
+            .execute()
+    }
+
+    // MARK: - Handoff planner (plan 05)
+
+    func upsertPledge(_ pledge: WeekPledge) async throws {
+        try await client.from("week_pledges")
+            .upsert(PledgeRow(id: pledge.id, group_id: pledge.groupID,
+                              member_id: pledge.memberID, dish_id: pledge.dishID,
+                              dish_name: pledge.dishName, dish_emoji: pledge.dishEmoji,
+                              portions: pledge.portions, week_start: pledge.weekStart),
+                    onConflict: "group_id,member_id,week_start")
+            .execute()
+    }
+
+    func deletePledge(groupID: UUID, weekStart: String) async throws {
+        try await client.from("week_pledges").delete()
+            .eq("group_id", value: groupID)
+            .eq("member_id", value: userID)
+            .eq("week_start", value: weekStart)
+            .execute()
+    }
+
+    func createHandoff(_ handoff: Handoff) async throws {
         do {
-            try await client.from("group_members")
-                .upsert(GroupMemberRow(group_id: groupID, member_id: userID))
+            try await client.from("handoffs")
+                .insert(HandoffRow(id: handoff.id, group_id: handoff.groupID,
+                                   spot: handoff.spot, at: handoff.at,
+                                   proposed_by: handoff.proposedBy,
+                                   week_start: handoff.weekStart))
                 .execute()
         } catch {
-            log(error)
+            // Duplicate key (retry, or a concurrent proposal won) — resolved.
+            if error.localizedDescription.contains("duplicate key") { return }
+            throw error
         }
     }
 
-    func leaveGroup(groupID: UUID) async {
+    func upsertRSVP(_ rsvp: HandoffRSVP) async throws {
+        try await client.from("handoff_rsvps")
+            .upsert(RSVPRow(handoff_id: rsvp.handoffID, member_id: rsvp.memberID,
+                            status: rsvp.going ? "going" : "cant",
+                            checkin: rsvp.checkin?.rawValue,
+                            no_show_member: rsvp.noShowMember))
+            .execute()
+    }
+
+    /// Files a dish incident (plan 02-§9): pauses the dish server-side and
+    /// opens a prioritized review case via trigger.
+    func fileIncident(dishID: UUID, detail: String) async throws {
+        try await client.from("incident_reports")
+            .insert(IncidentRow(dish_id: dishID, reporter_id: userID, detail: detail))
+            .execute()
+    }
+
+    // MARK: - Push tokens
+
+    private struct DeviceTokenRow: Encodable {
+        var token: String
+        var user_id: UUID
+        var updated_at: Date
+    }
+
+    /// Registers/refreshes this device's APNs token (plan 04); RLS keeps the
+    /// registry owner-only.
+    func registerDeviceToken(_ token: String) async {
         do {
-            try await client.from("group_members").delete()
-                .eq("group_id", value: groupID)
-                .eq("member_id", value: userID)
+            try await client.from("device_tokens")
+                .upsert(DeviceTokenRow(token: token, user_id: userID, updated_at: .now))
                 .execute()
         } catch {
             log(error)
@@ -444,6 +743,42 @@ final class SyncService {
                 }
             }
             await channel.unsubscribe()
+        }
+    }
+
+    // MARK: - Outbox dispatcher (plan 08)
+
+    /// Executes one queued op. false = transient failure, retry later.
+    func perform(_ op: PendingOp) async -> Bool {
+        do {
+            switch op {
+            case .swipe(let targetID, let kind, let liked):
+                _ = try await recordSwipe(targetID: targetID, kind: kind, liked: liked)
+            case .joinGroup(let id): try await joinGroup(groupID: id)
+            case .leaveGroup(let id): try await leaveGroup(groupID: id)
+            case .createGroup(let group): try await createGroup(group)
+            case .updateGroup(let group): try await updateGroup(group)
+            case .mergeGroups(let source, let dest): try await mergeGroups(source: source, dest: dest)
+            case .sendMessage(let message): try await sendMessage(message)
+            case .deleteMessage(let id): try await deleteMessage(id: id)
+            case .markRead(let groupID, let at): try await markRead(groupID: groupID, at: at)
+            case .block(let id): try await recordBlock(blockedID: id)
+            case .unblock(let id): try await removeBlock(blockedID: id)
+            case .report(let subjectID, let reason, let detail):
+                try await fileReport(subjectID: subjectID, reason: reason, detail: detail)
+            case .pushProfile(let profile): try await pushProfile(profile)
+            case .upsertPledge(let pledge): try await upsertPledge(pledge)
+            case .deletePledge(let groupID, let weekStart):
+                try await deletePledge(groupID: groupID, weekStart: weekStart)
+            case .createHandoff(let handoff): try await createHandoff(handoff)
+            case .upsertRSVP(let rsvp): try await upsertRSVP(rsvp)
+            case .incident(let dishID, let detail):
+                try await fileIncident(dishID: dishID, detail: detail)
+            }
+            return true
+        } catch {
+            log(error)
+            return false
         }
     }
 

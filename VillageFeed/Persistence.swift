@@ -10,6 +10,42 @@ struct PersistedState: Codable, Equatable {
     var reviewQueue: [ReviewCase]
     var messages: [GroupMessage]
     var reportDates: [Date]
+    // Chat upgrade (plan 07). Optional so pre-upgrade snapshots still decode.
+    var lastReadAt: [UUID: Date]?
+    var failedMessageIDs: [UUID]?
+    // Discovery filters (plan 06-A3), same back-compat rule.
+    var deckFilters: [DietaryTag]?
+    // Handoff planner (plan 05), same back-compat rule.
+    var weekPledges: [WeekPledge]?
+    var handoffs: [Handoff]?
+    var handoffRSVPs: [HandoffRSVP]?
+    // The outbox (plan 08): pending mutations survive relaunch.
+    var outbox: [PendingOp]?
+
+    init(me: UserProfile, people: [UserProfile], groups: [MealGroup],
+         swipedIDs: [UUID], matchedIDs: [UUID], blockedIDs: [UUID],
+         reviewQueue: [ReviewCase], messages: [GroupMessage], reportDates: [Date],
+         lastReadAt: [UUID: Date]? = nil, failedMessageIDs: [UUID]? = nil,
+         deckFilters: [DietaryTag]? = nil, weekPledges: [WeekPledge]? = nil,
+         handoffs: [Handoff]? = nil, handoffRSVPs: [HandoffRSVP]? = nil,
+         outbox: [PendingOp]? = nil) {
+        self.me = me
+        self.people = people
+        self.groups = groups
+        self.swipedIDs = swipedIDs
+        self.matchedIDs = matchedIDs
+        self.blockedIDs = blockedIDs
+        self.reviewQueue = reviewQueue
+        self.messages = messages
+        self.reportDates = reportDates
+        self.lastReadAt = lastReadAt
+        self.failedMessageIDs = failedMessageIDs
+        self.deckFilters = deckFilters
+        self.weekPledges = weekPledges
+        self.handoffs = handoffs
+        self.handoffRSVPs = handoffRSVPs
+        self.outbox = outbox
+    }
 }
 
 enum Persistence {

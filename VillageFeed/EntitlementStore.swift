@@ -29,12 +29,20 @@ final class EntitlementStore {
                 await self?.refresh()
             }
         }
+        await loadProduct()
+        await refresh()
+    }
+
+    /// Fetches the subscription product; callable again from the paywall's
+    /// retry state when the first load failed (plan 01-A2 — the Subscribe
+    /// button must never be a silent dead end).
+    func loadProduct() async {
         do {
             product = try await Product.products(for: [Self.productID]).first
+            if product != nil { lastError = nil }
         } catch {
             lastError = error.localizedDescription
         }
-        await refresh()
     }
 
     func refresh() async {

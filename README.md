@@ -68,3 +68,19 @@ into a week of different dinners.
 - Cook once, eat all week.
 - Your table, multiplied.
 - The neighborhood is the menu.
+
+## Moderator build
+
+The in-app review queue (Profile → Moderation) and the client-side AI reviewer
+are compiled **only** when the `MODERATOR_BUILD` flag is set — consumer App
+Store builds never contain them (plan 01-A3 / 02-§7). To build the moderator
+variant for internal TestFlight:
+
+```sh
+xcodebuild -project VillageFeed.xcodeproj -scheme VillageFeed \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) MODERATOR_BUILD' build
+```
+
+or add `MODERATOR_BUILD` to *Active Compilation Conditions* in a duplicated
+"VillageFeed (Moderator)" scheme in Xcode. Distribute via internal TestFlight
+to moderators only.

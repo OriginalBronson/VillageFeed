@@ -16,7 +16,9 @@ This policy describes what we collect and how it's used.
   and reports.
 
 We do **not** collect your precise location. Neighborhood is a free-text label
-you type yourself.
+you type yourself. If you provide a **ZIP/postal code**, we store it only to
+sort nearby cooks first; it is never shown to other users, and other users'
+apps only see coarse relative buckets ("your area" / "nearby" / "farther out").
 
 ## How it's used
 

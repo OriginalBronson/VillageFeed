@@ -17,3 +17,32 @@ jobs:
             -scheme VillageFeed \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             CODE_SIGNING_ALLOWED=NO
+
+  # Catches #if DEBUG-only compilation mistakes before archive day
+  # (plan 11-B / plan 01-A2 depends on this).
+  release-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Release configuration
+        run: |
+          xcodebuild build \
+            -project VillageFeed.xcodeproj \
+            -scheme VillageFeed \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+  # The RLS policies, actually executed (plan 11-A2): seeds three users and
+  # asserts blocks/frozen/report-limit/is_plus behavior against a local stack.
+  rls-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start local Supabase
+        run: supabase start
+      - name: Run pgTAP RLS tests
+        run: supabase test db

@@ -66,12 +66,19 @@ external beta. Plan 12's pilot begins the day external TestFlight opens.
 
 ## Definition of "ready to submit"
 
-- [ ] Plan 01 checklist fully green (compliance)
-- [ ] Plan 02 security items done (server report limit, bidirectional block, email confirm)
-- [ ] Plan 03 P1 items done (no internal tooling in consumer UI, no fake seeded people in prod, paywall links)
-- [ ] Message reporting from plan 07 (SAFETY-NOTES launch item)
-- [ ] Plan 08 bugs B1–B3 fixed (photo/dish data loss, match divergence)
-- [ ] Terms of Service hosted and counsel-reviewed; onboarding gate links it (plan 09)
-- [ ] Release builds come from CI; device checklist passed (plan 11)
-- [ ] App runs correctly on a physical iPhone signed in against production Supabase
+Status as of 2026-07-17 — code side executed on branch `plans/app-store-readiness`;
+remaining items are browser work (DISPATCH-3.md), counsel, and physical-device passes.
+
+- [x] Plan 01 code items (SIWA, paywall legal/retry, moderation gated, demo seeding gated, Info.plist, contact) — App Store Connect/portal steps queued in DISPATCH-3
+- [x] Plan 02 security items in migration 0008 (server report limit, bidirectional block, match trigger, frozen write lockout) — **apply via DISPATCH-3**; email confirm is a held launch phase
+- [x] Plan 03 P1+P2 done (no internal tooling, no seeded people in configured builds, paywall links, merge consent, card preview, blocked list, a11y pass, offline states)
+- [x] Message reporting + delete-own + unread model (plan 07); chat is a real screen
+- [x] Plan 08 bugs B1–B3 fixed + outbox with drain-then-pull, connectivity/foreground drains, resubscribe
+- [ ] Terms of Service **drafted** (docs/terms-of-service.md) — hosting (DISPATCH-3) and **counsel review still open (launch gate)**
+- [x] Release pipeline (release.yml, tag-triggered) + Release-config CI + pgTAP RLS job; device checklist written (docs/device-checklist.md) — **device pass not yet run**
+- [ ] App runs correctly on a physical iPhone signed in against production Supabase (needs anon key + migrations applied — DISPATCH-3)
 - [ ] One full end-to-end trade tested by two real accounts on TestFlight
+
+Also shipped beyond the gate list: plans 04 (push), 05 (handoff planner),
+06 (filters + ZIP), 10 (trust v1), 12 (invite loop, village threshold),
+02-P2 (incidents, appeal copy, moderator build).

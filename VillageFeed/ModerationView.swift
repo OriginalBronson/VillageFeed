@@ -1,3 +1,6 @@
+// Moderator-only surface (plan 01-A3 / 02-§7): compiled solely into the
+// MODERATOR_BUILD scheme, never the consumer App Store build.
+#if MODERATOR_BUILD
 import SwiftUI
 
 struct ModerationView: View {
@@ -118,3 +121,4 @@ struct ModerationView: View {
         }
     }
 }
+#endif

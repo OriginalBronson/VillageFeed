@@ -1,12 +1,17 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct VillageFeedApp: App {
+    @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     @State private var store = AppStore()
     @State private var entitlements = EntitlementStore()
     @State private var auth = AuthSession()
     @AppStorage("hasOnboarded") private var hasOnboarded = false
     @Environment(\.scenePhase) private var scenePhase
+    // Material ToS changes re-prompt (plan 09-C): the stored accepted version
+    // differs from the one shipping in this build.
+    @State private var needsTosReaccept = LegalDocs.needsReacceptance
 
     var body: some Scene {
         WindowGroup {
@@ -42,6 +47,13 @@ struct VillageFeedApp: App {
             .sheet(isPresented: $auth.passwordRecoveryPending) {
                 NewPasswordSheet()
             }
+            .sheet(isPresented: $needsTosReaccept) {
+                TermsReacceptSheet {
+                    LegalDocs.recordAcceptance()
+                    needsTosReaccept = false
+                }
+                .interactiveDismissDisabled()
+            }
             .onOpenURL { auth.handleAuthCallback($0) }
             .tint(.villageAccent)
             .environment(store)
@@ -52,6 +64,17 @@ struct VillageFeedApp: App {
             .onChange(of: scenePhase) {
                 if scenePhase == .background || scenePhase == .inactive {
                     store.persist()
+                    // App-icon badge mirrors unread messages (plan 04).
+                    let unread = store.totalUnreadMessages
+                    Task { try? await UNUserNotificationCenter.current().setBadgeCount(unread) }
+                }
+                // Foregrounding: drain pending writes, re-pull, and revive the
+                // realtime socket that died in the background (plan 08).
+                if scenePhase == .active, store.sync != nil {
+                    Task {
+                        await store.refreshFromServer()
+                        store.resubscribeMessages()
+                    }
                 }
             }
             .onChange(of: auth.state) {
@@ -64,6 +87,15 @@ struct VillageFeedApp: App {
                 }
                 let sync = SyncService(client: client, userID: uid)
                 store.sync = sync
+                // Mirror the APNs token server-side; refresh on every launch
+                // and on any future token rotation (plan 04).
+                PushManager.shared.onToken = { token in
+                    Task { await sync.registerDeviceToken(token) }
+                }
+                if let token = PushManager.shared.deviceToken {
+                    Task { await sync.registerDeviceToken(token) }
+                }
+                Task { await PushManager.shared.registerIfAuthorized() }
                 let firstAdoption = store.me.id != uid
                 store.adoptIdentity(uid)
                 // Returning users go straight in; first sign-ins on this
@@ -71,17 +103,14 @@ struct VillageFeedApp: App {
                 // to decide whether the creation wizard runs.
                 store.profileReadiness = (!firstAdoption && AppStore.looksLikeRealProfile(store.me))
                     ? .ready : .unknown
+                store.startConnectivityMonitor()
                 Task {
                     store.applyMyRemoteProfile(await sync.fetchMyProfile())
                     // Report the StoreKit entitlement before the first pull so
                     // who_liked_me() identities are already unlocked for subscribers.
                     await sync.syncEntitlement(jws: entitlements.latestTransactionJWS)
-                    if let snapshot = try? await sync.pull() {
-                        store.applyRemote(snapshot)
-                    }
-                    store.messageSubscription = sync.subscribeToMessages { [weak store] row in
-                        store?.receiveRemoteMessage(row)
-                    }
+                    await store.refreshFromServer()
+                    store.resubscribeMessages()
                 }
             }
             // A purchase (or lapse) mid-session: mirror it server-side, then
@@ -91,9 +120,7 @@ struct VillageFeedApp: App {
                 let jws = entitlements.latestTransactionJWS
                 Task {
                     await sync.syncEntitlement(jws: jws)
-                    if let snapshot = try? await sync.pull() {
-                        store.applyRemote(snapshot)
-                    }
+                    await store.refreshFromServer()
                 }
             }
         }
@@ -105,18 +132,84 @@ extension Color {
     static let villageAccent = Color(hue: 0.09, saturation: 0.85, brightness: 0.85)
 }
 
+enum AppTab: Hashable {
+    case discover, groups, likes, profile
+}
+
 struct RootView: View {
+    @Environment(AppStore.self) private var store
+    // The tab selection is managed so notification taps can route (plan 04).
+    @State private var selection: AppTab = .discover
+    private var push = PushManager.shared
+
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
             DiscoverView()
                 .tabItem { Label("Discover", systemImage: "hand.draw") }
+                .tag(AppTab.discover)
             GroupsView()
                 .tabItem { Label("Groups", systemImage: "person.3") }
+                .badge(store.totalUnreadMessages)
+                .tag(AppTab.groups)
             LikesView()
                 .tabItem { Label("Likes", systemImage: "heart") }
+                .tag(AppTab.likes)
             ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                .tag(AppTab.profile)
         }
+        .onChange(of: push.pendingRoute) {
+            guard let route = push.pendingRoute else { return }
+            switch route {
+            case .matches:
+                selection = .groups
+                push.pendingRoute = nil
+            case .group:
+                // GroupsView consumes the group id and clears the route.
+                selection = .groups
+            case .profile:
+                selection = .profile
+                push.pendingRoute = nil
+            }
+        }
+    }
+}
+
+/// Shown when the ToS version changed since the user last accepted (plan 09-C).
+struct TermsReacceptSheet: View {
+    let accept: () -> Void
+    @State private var agrees = false
+
+    init(accept: @escaping () -> Void) {
+        self.accept = accept
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("📜").font(.system(size: 64)).padding(.top, 40)
+            Text("Our terms have changed")
+                .font(.title2.bold())
+            Text("Please review and accept the updated [Terms of Service](\(LegalDocs.termsURL.absoluteString)) and [Privacy Policy](\(LegalDocs.privacyURL.absoluteString)) to keep trading.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 28)
+            Toggle("I agree to the updated terms", isOn: $agrees)
+                .font(.subheadline)
+                .padding(.horizontal, 28)
+            Button {
+                accept()
+            } label: {
+                Text("Continue")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!agrees)
+            .padding(.horizontal, 28)
+            Spacer()
+        }
+        .presentationDetents([.medium])
     }
 }
 
@@ -155,6 +248,12 @@ struct OnboardingView: View {
                             VStack(spacing: 8) {
                                 Toggle("I'm 17 or older", isOn: $isOfAge)
                                 Toggle("I understand meals are home-cooked and uninspected, and I'll disclose allergens honestly", isOn: $acceptsFoodRisk)
+                                // The acknowledgment needs a readable document
+                                // behind it (plan 03-O2 / 09-C).
+                                Text("By continuing you agree to the [Terms of Service](\(LegalDocs.termsURL.absoluteString)) and [Privacy Policy](\(LegalDocs.privacyURL.absoluteString)).")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
                             }
                             .font(.subheadline)
                             .padding(.horizontal, 32)
@@ -169,6 +268,7 @@ struct OnboardingView: View {
                 if page < pages.count - 1 {
                     withAnimation { page += 1 }
                 } else {
+                    LegalDocs.recordAcceptance()
                     done = true
                 }
             } label: {

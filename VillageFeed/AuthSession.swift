@@ -65,13 +65,36 @@ final class AuthSession {
         info = nil
     }
 
+    /// Maps raw Supabase auth errors to human copy (plan 03-O4) — "invalid
+    /// login credentials" strings shouldn't reach neighbors verbatim.
+    private func humanize(_ error: Error) -> String {
+        let raw = error.localizedDescription.lowercased()
+        if raw.contains("invalid login credentials") {
+            return "That email and password don't match. Try again, or tap \"Forgot password?\""
+        }
+        if raw.contains("already registered") || raw.contains("already been registered") {
+            return "That email already has an account — switch to Sign in."
+        }
+        if raw.contains("password") && (raw.contains("weak") || raw.contains("at least")) {
+            return "Please pick a longer password (at least 8 characters)."
+        }
+        if raw.contains("email not confirmed") {
+            return "Check your inbox for the confirmation link first, then sign in."
+        }
+        if raw.contains("network") || raw.contains("connection") || raw.contains("offline")
+            || raw.contains("internet") || raw.contains("timed out") {
+            return "Couldn't reach VillageFeed — check your connection and try again."
+        }
+        return error.localizedDescription
+    }
+
     func signIn(email: String, password: String) async {
         guard let client else { return }
         clearMessages()
         do {
             _ = try await client.auth.signIn(email: email, password: password)
         } catch {
-            lastError = error.localizedDescription
+            lastError = humanize(error)
         }
     }
 
@@ -84,7 +107,7 @@ final class AuthSession {
                 info = "Check your email to confirm your account, then sign in."
             }
         } catch {
-            lastError = error.localizedDescription
+            lastError = humanize(error)
         }
     }
 
@@ -128,6 +151,39 @@ final class AuthSession {
             do {
                 try await client.auth.session(from: url)
                 if isRecovery { passwordRecoveryPending = true }
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Completes Sign in with Apple (Guideline 4.8): the SwiftUI
+    /// SignInWithAppleButton ran the native ASAuthorizationController flow;
+    /// this exchanges Apple's identity token for a Supabase session. The
+    /// nonce must be the raw value whose SHA-256 was set on the request.
+    func signInWithApple(result: Result<ASAuthorization, Error>, rawNonce: String) async {
+        guard let client else { return }
+        clearMessages()
+        switch result {
+        case .failure(let error):
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled { return }
+            lastError = error.localizedDescription
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let idToken = String(data: tokenData, encoding: .utf8) else {
+                lastError = "Apple sign-in returned no identity token."
+                return
+            }
+            do {
+                _ = try await client.auth.signInWithIdToken(
+                    credentials: .init(provider: .apple, idToken: idToken, nonce: rawNonce)
+                )
+                // Apple only supplies the name on the first authorization —
+                // stash it in auth metadata so profile setup can prefill it.
+                if let name = credential.fullName?.formatted(), !name.isEmpty {
+                    _ = try? await client.auth.update(user: UserAttributes(data: ["full_name": .string(name)]))
+                }
             } catch {
                 lastError = error.localizedDescription
             }

@@ -6,7 +6,9 @@ struct ProfileView: View {
     @Environment(AuthSession.self) private var auth
     @State private var photoItem: PhotosPickerItem?
     @State private var addingDish = false
+    @State private var editingDish: Dish?
     @State private var confirmingDeletion = false
+    @State private var previewingCard = false
 
     var body: some View {
         @Bindable var store = store
@@ -29,6 +31,20 @@ struct ProfileView: View {
                     Text("Your main photo can be you — or your signature dish.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // A frozen user deserves more than a badge (plan 02-§8):
+                    // what happened, and how to appeal.
+                    if store.me.status == .frozen {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Your profile is under review")
+                                .font(.subheadline.weight(.semibold))
+                            Text("It was reported or flagged and is hidden from Discover while a human reviews it — usually within a day. If you think this is a mistake, email us and we'll take a look.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Link("Appeal by email", destination: URL(string: "mailto:\(LegalDocs.supportEmail)?subject=Appeal%20—%20frozen%20profile")!)
+                                .font(.caption.weight(.medium))
+                        }
+                        .padding(.vertical, 4)
+                    }
                 } header: {
                     Text("Profile")
                 }
@@ -36,6 +52,15 @@ struct ProfileView: View {
                 Section("About") {
                     TextField("Name", text: $store.me.name)
                     TextField("Neighborhood", text: $store.me.neighborhood)
+                    TextField("ZIP code", text: Binding(
+                        get: { store.me.areaCode ?? "" },
+                        set: { store.me.areaCode = $0.isEmpty ? nil : $0 }
+                    ))
+                    .keyboardType(.numberPad)
+                    .textContentType(.postalCode)
+                    Text("Your ZIP is used only to sort nearby cooks first — it's never shown to anyone.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     TextField("Bio", text: $store.me.bio, axis: .vertical)
                         .lineLimit(2...4)
                 }
@@ -47,27 +72,33 @@ struct ProfileView: View {
 
                 Section("Dishes you'll trade") {
                     ForEach(store.me.dishes) { dish in
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                if let photo = dish.photo {
-                                    PhotoView(photo: photo, height: 36)
-                                        .frame(width: 36)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                } else {
-                                    Text(dish.emoji)
+                        // Tap to edit (plan 03-P4) — same sheet, prefilled.
+                        Button {
+                            editingDish = dish
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    if let photo = dish.photo {
+                                        PhotoView(photo: photo, height: 36)
+                                            .frame(width: 36)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    } else {
+                                        Text(dish.emoji)
+                                    }
+                                    Text(dish.name)
+                                    Spacer()
+                                    Text("\(dish.portions) portions")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
-                                Text(dish.name)
-                                Spacer()
-                                Text("\(dish.portions) portions")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if !dish.allergenNote.isEmpty {
-                                Label(dish.allergenNote, systemImage: "exclamationmark.triangle")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
+                                if !dish.allergenNote.isEmpty {
+                                    Label(dish.allergenNote, systemImage: "exclamationmark.triangle")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
                             }
                         }
+                        .buttonStyle(.plain)
                     }
                     .onDelete { store.me.dishes.remove(atOffsets: $0) }
 
@@ -79,18 +110,37 @@ struct ProfileView: View {
                 }
 
                 Section {
+                    // See the card strangers actually swipe on (plan 03-P3).
+                    Button {
+                        previewingCard = true
+                    } label: {
+                        Label("Preview my card", systemImage: "rectangle.portrait.on.rectangle.portrait")
+                    }
                     Button("Submit profile for review") {
                         store.submitMyProfileForReview()
                     }
                     .disabled(store.me.status == .pendingReview)
-                    Text("New and edited profiles are reviewed before they appear in Discover.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if store.me.status == .pendingReview {
+                        // Waiting shouldn't feel like vanishing (plan 03-P2).
+                        Text("Your profile is in review — usually done within a few hours. You'll appear in Discover as soon as it's approved.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("New and edited profiles are reviewed before they appear in Discover.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } header: {
                     Text("Publish")
                 }
 
                 Section("Account") {
+                    // A misjudged block on a neighbor shouldn't be forever (plan 03-P5).
+                    if !store.blockedIDs.isEmpty {
+                        NavigationLink("Blocked users (\(store.blockedIDs.count))") {
+                            BlockedUsersView()
+                        }
+                    }
                     if auth.state == .signedIn {
                         if let email = auth.userEmail {
                             LabeledContent("Signed in as", value: email)
@@ -112,8 +162,15 @@ struct ProfileView: View {
                     NavigationLink("Privacy & safety") {
                         PrivacySheet()
                     }
+                    Link("Terms of Service", destination: LegalDocs.termsURL)
+                    // UGC guideline 1.2: published developer contact (plan 01-A6).
+                    Link("Contact us", destination: URL(string: "mailto:\(LegalDocs.supportEmail)")!)
                 }
 
+                // Internal tooling never ships to consumers (plan 01-A3):
+                // the review queue exists only in the MODERATOR_BUILD scheme
+                // distributed to moderators via internal TestFlight.
+                #if MODERATOR_BUILD
                 Section("Moderation") {
                     NavigationLink {
                         ModerationView()
@@ -126,10 +183,29 @@ struct ProfileView: View {
                     }
                     .badge(store.pendingReviewCases.count)
                 }
+                #endif
             }
             .navigationTitle("Profile")
             .sheet(isPresented: $addingDish) {
                 DishEditorSheet()
+            }
+            .sheet(item: $editingDish) { dish in
+                DishEditorSheet(editing: dish)
+            }
+            .sheet(isPresented: $previewingCard) {
+                NavigationStack {
+                    ScrollView {
+                        PersonCard(person: store.me)
+                            .padding(20)
+                    }
+                    .navigationTitle("Your card")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { previewingCard = false }
+                        }
+                    }
+                }
             }
             .confirmationDialog("Delete your account?", isPresented: $confirmingDeletion, titleVisibility: .visible) {
                 Button("Delete everything", role: .destructive) {
@@ -190,22 +266,39 @@ struct DietaryTagGrid: View {
 struct DishEditorSheet: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var emoji = "🍲"
-    @State private var blurb = ""
-    @State private var allergens = ""
-    @State private var portions = 6
+    // Editing an existing dish reuses this sheet (plan 03-P4): fixing a typo
+    // no longer means delete + re-enter + lose the photo.
+    private let editing: Dish?
+    @State private var name: String
+    @State private var emoji: String
+    @State private var blurb: String
+    @State private var allergens: String
+    @State private var portions: Int
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
+    private let existingPhoto: Photo?
+
+    init(editing: Dish? = nil) {
+        self.editing = editing
+        _name = State(initialValue: editing?.name ?? "")
+        _emoji = State(initialValue: editing?.emoji ?? "🍲")
+        _blurb = State(initialValue: editing?.blurb ?? "")
+        _allergens = State(initialValue: editing?.allergenNote ?? "")
+        _portions = State(initialValue: editing?.portions ?? 6)
+        existingPhoto = editing?.photo
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("The dish") {
                     TextField("Name (e.g. Sunday Ragù)", text: $name)
-                    TextField("Emoji", text: $emoji)
                     TextField("One-line description", text: $blurb)
                     Stepper("Portions to trade: \(portions)", value: $portions, in: 1...50)
+                }
+                Section("Emoji") {
+                    FoodEmojiGrid(selection: $emoji)
+                        .padding(.vertical, 4)
                 }
                 Section("Photo") {
                     HStack {
@@ -213,9 +306,13 @@ struct DishEditorSheet: View {
                             PhotoView(photo: .data(photoData), height: 64)
                                 .frame(width: 64)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                        } else if let existingPhoto {
+                            PhotoView(photo: existingPhoto, height: 64)
+                                .frame(width: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                         PhotosPicker(selection: $photoItem, matching: .images) {
-                            Label(photoData == nil ? "Add a photo" : "Change photo", systemImage: "camera")
+                            Label(photoData == nil && existingPhoto == nil ? "Add a photo" : "Change photo", systemImage: "camera")
                         }
                     }
                     Text("Dishes with photos get traded with most.")
@@ -227,6 +324,11 @@ struct DishEditorSheet: View {
                     Text("Declare allergens honestly — your neighbors rely on it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // Prohibited-foods policy, surfaced at the point of entry
+                    // (single source of truth: Terms of Service §5, plan 09-C).
+                    Text("No raw milk, home-canned goods, wild mushrooms, raw meat preparations, or alcohol — see the Terms of Service.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
             }
             .navigationTitle("Advertise a dish")
@@ -236,15 +338,21 @@ struct DishEditorSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        store.me.dishes.append(Dish(
+                    Button(editing == nil ? "Add" : "Save") {
+                        let dish = Dish(
+                            id: editing?.id ?? UUID(),
                             name: name.trimmingCharacters(in: .whitespaces),
                             emoji: emoji.isEmpty ? "🍲" : emoji,
                             blurb: blurb.trimmingCharacters(in: .whitespaces),
                             portions: portions,
                             allergenNote: allergens.trimmingCharacters(in: .whitespaces),
-                            photo: photoData.map(Photo.data)
-                        ))
+                            photo: photoData.map(Photo.data) ?? existingPhoto
+                        )
+                        if let editing, let idx = store.me.dishes.firstIndex(where: { $0.id == editing.id }) {
+                            store.me.dishes[idx] = dish
+                        } else {
+                            store.me.dishes.append(dish)
+                        }
                         store.persist()
                         dismiss()
                     }
@@ -260,6 +368,39 @@ struct DishEditorSheet: View {
             }
         }
         .presentationDetents([.large])
+    }
+}
+
+/// Blocked-users management (plan 03-P5): blocks are reversible now that the
+/// server owns them (migration 0008).
+struct BlockedUsersView: View {
+    @Environment(AppStore.self) private var store
+
+    var body: some View {
+        List {
+            if store.blockedIDs.isEmpty {
+                Text("Nobody blocked. That's a good village.")
+                    .foregroundStyle(.secondary)
+            } else {
+                Section {
+                    ForEach(store.blockedPeople, id: \.id) { person in
+                        HStack {
+                            Text(person.name)
+                            Spacer()
+                            Button("Unblock") {
+                                store.unblock(person.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.caption.bold())
+                        }
+                    }
+                } footer: {
+                    Text("Unblocking makes you visible to each other again from the next refresh.")
+                }
+            }
+        }
+        .navigationTitle("Blocked users")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -280,9 +421,8 @@ struct PrivacySheet: View {
                 Text("Profile → Account → Delete account permanently removes everything from our servers, and wipes this device.")
             }
             Section("Full policy") {
-                Text("The complete privacy policy ships with the repository (docs/privacy-policy.md) and will be hosted before App Store release.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Link("Read the full privacy policy", destination: LegalDocs.privacyURL)
+                Link("Read the Terms of Service", destination: LegalDocs.termsURL)
             }
         }
         .navigationTitle("Privacy & safety")
