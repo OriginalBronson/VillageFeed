@@ -9,7 +9,14 @@ final class EntitlementStore {
 
     private(set) var product: Product?
     private(set) var hasPlus = false
+    // Signed transaction backing the current entitlement. The server re-verifies
+    // it (sync-entitlement edge function) before granting is_plus; nil means no
+    // active subscription, which tells the server to drop the paid tier.
+    private(set) var latestTransactionJWS: String?
     private(set) var lastError: String?
+    // Supabase user id while signed in. New purchases carry it as the
+    // appAccountToken so the server can tie the receipt to the account.
+    var appAccountToken: UUID?
     var debugPlus = false // simulator/testing escape hatch; UI-exposed in DEBUG only
 
     var isPlus: Bool { hasPlus || debugPlus }
@@ -32,20 +39,27 @@ final class EntitlementStore {
 
     func refresh() async {
         var owned = false
+        var jws: String?
         for await entitlement in Transaction.currentEntitlements {
             if case .verified(let transaction) = entitlement,
                transaction.productID == Self.productID,
                transaction.revocationDate == nil {
                 owned = true
+                jws = entitlement.jwsRepresentation
             }
         }
         hasPlus = owned
+        latestTransactionJWS = jws
     }
 
     func purchase() async {
         guard let product else { return }
         do {
-            let result = try await product.purchase()
+            var options: Set<Product.PurchaseOption> = []
+            if let appAccountToken {
+                options.insert(.appAccountToken(appAccountToken))
+            }
+            let result = try await product.purchase(options: options)
             if case .success(.verified(let transaction)) = result {
                 await transaction.finish()
                 await refresh()

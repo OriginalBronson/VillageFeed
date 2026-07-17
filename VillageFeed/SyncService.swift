@@ -388,6 +388,27 @@ final class SyncService {
         }
     }
 
+    // MARK: - Entitlement
+
+    private struct EntitlementPayload: Encodable {
+        var jws: String?
+    }
+
+    /// Mirrors the StoreKit entitlement to profiles.is_plus via the
+    /// sync-entitlement edge function — clients can't write the column, and the
+    /// server re-verifies the signed transaction before granting it. nil
+    /// reports a lapsed/absent subscription so the paid tier is dropped.
+    func syncEntitlement(jws: String?) async {
+        do {
+            try await client.functions.invoke(
+                "sync-entitlement",
+                options: FunctionInvokeOptions(body: EntitlementPayload(jws: jws))
+            )
+        } catch {
+            log(error)
+        }
+    }
+
     // MARK: - Realtime
 
     // Postgres timestamps arrive as ISO8601 with microseconds; plain .iso8601 chokes.
