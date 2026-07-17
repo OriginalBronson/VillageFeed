@@ -182,8 +182,36 @@ final class SyncService {
         )
     }
 
+    /// Fetches my own profile row (pull() deliberately excludes it). Returns
+    /// nil on any failure so callers can fall back to local state.
+    func fetchMyProfile() async -> UserProfile? {
+        do {
+            let row: ProfileRow = try await client.from("profiles")
+                .select("id,name,neighborhood,bio,dietary_tags,status,photo_path")
+                .eq("id", value: userID)
+                .single()
+                .execute().value
+            let dishes: [DishRow] = try await client.from("dishes")
+                .select("id,owner_id,name,emoji,blurb,portions,allergen_note,photo_path")
+                .eq("owner_id", value: userID)
+                .execute().value
+            let dishPhotoURLs: [UUID: URL] = dishes.reduce(into: [:]) { acc, dish in
+                if let url = publicPhotoURL(dish.photo_path) { acc[dish.id] = url }
+            }
+            return UserProfile(row: row, dishes: dishes,
+                               photoURL: publicPhotoURL(row.photo_path),
+                               dishPhotoURLs: dishPhotoURLs)
+        } catch {
+            log(error)
+            return nil
+        }
+    }
+
     // MARK: - Push
 
+    // A nil photo_path is omitted from the payload (synthesized Codable uses
+    // encodeIfPresent), so the server keeps the stored photo unless a new
+    // upload succeeded — hydrated .remote photos survive re-pushes.
     private struct ProfileUpdate: Encodable {
         var name: String
         var neighborhood: String
@@ -195,6 +223,15 @@ final class SyncService {
     private func publicPhotoURL(_ path: String?) -> URL? {
         guard let path else { return nil }
         return try? client.storage.from("photos").getPublicURL(path: path)
+    }
+
+    /// Recovers a storage path from a public photos-bucket URL. pushProfile
+    /// rewrites dish rows wholesale, so a dish hydrated from the server (photo
+    /// is .remote, not .data) must keep its photo_path instead of dropping it.
+    nonisolated static func storagePath(fromPublicURL url: URL) -> String? {
+        let path = url.path(percentEncoded: false)
+        guard let range = path.range(of: "/object/public/photos/") else { return nil }
+        return String(path[range.upperBound...])
     }
 
     func pushProfile(_ me: UserProfile) async {
@@ -223,7 +260,8 @@ final class SyncService {
             var dishRows: [DishRow] = []
             for dish in me.dishes {
                 var dishPhotoPath: String?
-                if case .data(let imageData) = dish.photo {
+                switch dish.photo {
+                case .data(let imageData)?:
                     let path = "\(userID.uuidString.lowercased())/dish-\(dish.id.uuidString.lowercased()).jpg"
                     do {
                         try await client.storage.from("photos").upload(
@@ -234,6 +272,10 @@ final class SyncService {
                     } catch {
                         log(error)
                     }
+                case .remote(let url)?:
+                    dishPhotoPath = Self.storagePath(fromPublicURL: url)
+                default:
+                    break
                 }
                 dishRows.append(DishRow(id: dish.id, owner_id: userID, name: dish.name,
                                         emoji: dish.emoji, blurb: dish.blurb, portions: dish.portions,

@@ -361,4 +361,118 @@ struct VillageFeedTests {
         store.resolve(caseID: caseID, approved: true)
         #expect(store.me.status == .active)
     }
+
+    // MARK: - Profile creation & hydration
+
+    private func remoteProfile(id: UUID, name: String, neighborhood: String,
+                               status: String = "pendingReview",
+                               dishes: [DishRow] = [], photoURL: URL? = nil) -> UserProfile {
+        UserProfile(row: ProfileRow(id: id, name: name, neighborhood: neighborhood, bio: "",
+                                    dietary_tags: [], status: status, photo_path: nil),
+                    dishes: dishes, photoURL: photoURL)
+    }
+
+    @Test func bareServerRowStartsProfileSetupAndClearsSeedJunk() {
+        let store = AppStore(persisted: false)
+        let uid = UUID()
+        store.adoptIdentity(uid)
+        // Row fresh from the signup trigger: name from Google metadata, rest empty.
+        store.applyMyRemoteProfile(remoteProfile(id: uid, name: "Bronson Thomas", neighborhood: ""))
+        #expect(store.profileReadiness == .needsSetup)
+        #expect(store.me.name == "Bronson Thomas") // prefilled from the server row
+        #expect(store.me.neighborhood.isEmpty)     // seed "Maplewood" cleared
+        #expect(store.me.bio.isEmpty)              // seed bio cleared
+        #expect(store.me.dietaryTags.isEmpty)      // seed tags cleared
+        #expect(store.me.dishes.isEmpty)           // seed lasagna never leaks into a real account
+    }
+
+    @Test func demoModeEditsSurviveProfileSetupPrep() {
+        let store = AppStore(persisted: false)
+        store.me.name = "Bronson"
+        store.me.bio = "I cook."
+        store.adoptIdentity(UUID())
+        store.prepareForProfileSetup(remoteName: "Ignored Server Name")
+        #expect(store.me.name == "Bronson") // typed values beat the server prefill
+        #expect(store.me.bio == "I cook.")
+        #expect(store.me.neighborhood.isEmpty) // untouched seed value still blanked
+    }
+
+    @Test func completeServerProfileHydratesAndSkipsSetup() {
+        let store = AppStore(persisted: false)
+        let uid = UUID()
+        store.adoptIdentity(uid)
+        let url = URL(string: "https://example.supabase.co/storage/v1/object/public/photos/x/profile.jpg")!
+        let dish = DishRow(id: UUID(), owner_id: uid, name: "Pho", emoji: "🍜",
+                           blurb: "beefy", portions: 4, allergen_note: "fish sauce")
+        store.applyMyRemoteProfile(remoteProfile(id: uid, name: "Ana", neighborhood: "Hillcrest",
+                                                 status: "active", dishes: [dish], photoURL: url))
+        #expect(store.profileReadiness == .ready)
+        #expect(store.me.name == "Ana")
+        #expect(store.me.neighborhood == "Hillcrest")
+        #expect(store.me.photo == .remote(url))
+        #expect(store.me.dishes.map(\.name) == ["Pho"])
+        #expect(store.me.status == .active)
+    }
+
+    @Test func failedProfileFetchFallsBackToLocalState() {
+        // Untouched seed identity → run setup (offline wizard works fine).
+        let store = AppStore(persisted: false)
+        store.applyMyRemoteProfile(nil)
+        #expect(store.profileReadiness == .needsSetup)
+
+        // A profile the user actually created → straight into the app.
+        let returning = AppStore(persisted: false)
+        returning.me.name = "Bronson"
+        returning.me.neighborhood = "Riverside"
+        returning.applyMyRemoteProfile(nil)
+        #expect(returning.profileReadiness == .ready)
+    }
+
+    @Test func completedLocalProfileWinsOverBareServerRow() {
+        // Setup finished on this device but the push never landed —
+        // the wizard must not re-run over real local data.
+        let store = AppStore(persisted: false)
+        let uid = UUID()
+        store.adoptIdentity(uid)
+        store.me.name = "Bronson"
+        store.me.neighborhood = "Riverside"
+        store.applyMyRemoteProfile(remoteProfile(id: uid, name: "", neighborhood: ""))
+        #expect(store.profileReadiness == .ready)
+        #expect(store.me.name == "Bronson")
+    }
+
+    @Test func completeProfileSetupTrimsAndSubmitsForReview() {
+        let store = AppStore(persisted: false)
+        store.adoptIdentity(UUID())
+        store.prepareForProfileSetup(remoteName: nil)
+        store.me.name = "  Bronson "
+        store.me.neighborhood = " Riverside "
+        store.completeProfileSetup()
+        #expect(store.profileReadiness == .ready)
+        #expect(store.me.name == "Bronson")
+        #expect(store.me.neighborhood == "Riverside")
+        #expect(store.me.status == .pendingReview)
+        #expect(store.pendingReviewCases.contains { $0.subjectID == store.me.id && $0.trigger == .newProfile })
+    }
+
+    @Test func hydrationKeepsLocalApprovalButAdoptsServerFreeze() {
+        let store = AppStore(persisted: false)
+        let uid = UUID()
+        store.adoptIdentity(uid)
+        store.me.status = .active
+        // Server rows sit at pendingReview (clients can't write status) — a
+        // locally approved profile stays active.
+        store.applyMyRemoteProfile(remoteProfile(id: uid, name: "Ana", neighborhood: "Hillcrest"))
+        #expect(store.me.status == .active)
+        // But a server-side freeze always wins.
+        store.applyMyRemoteProfile(remoteProfile(id: uid, name: "Ana", neighborhood: "Hillcrest",
+                                                 status: "frozen"))
+        #expect(store.me.status == .frozen)
+    }
+
+    @Test func storagePathRecoveredFromPublicPhotoURL() {
+        let url = URL(string: "https://proj.supabase.co/storage/v1/object/public/photos/abc/dish-1.jpg")!
+        #expect(SyncService.storagePath(fromPublicURL: url) == "abc/dish-1.jpg")
+        #expect(SyncService.storagePath(fromPublicURL: URL(string: "https://example.com/x.jpg")!) == nil)
+    }
 }

@@ -17,6 +17,9 @@ final class AuthSession {
     private(set) var userEmail: String?
     private(set) var userID: UUID?
     private(set) var lastError: String?
+    private(set) var info: String? // non-error guidance ("check your inbox…")
+    // A password-reset link was tapped; the app should ask for a new password.
+    var passwordRecoveryPending = false
     let client: SupabaseClient?
 
     init() {
@@ -39,6 +42,9 @@ final class AuthSession {
             switch change.event {
             case .signedIn, .initialSession, .tokenRefreshed:
                 if let session = change.session { apply(session) }
+            case .passwordRecovery:
+                if let session = change.session { apply(session) }
+                passwordRecoveryPending = true
             case .signedOut, .userDeleted:
                 userEmail = nil
                 state = .signedOut
@@ -54,9 +60,14 @@ final class AuthSession {
         state = .signedIn
     }
 
+    func clearMessages() {
+        lastError = nil
+        info = nil
+    }
+
     func signIn(email: String, password: String) async {
         guard let client else { return }
-        lastError = nil
+        clearMessages()
         do {
             _ = try await client.auth.signIn(email: email, password: password)
         } catch {
@@ -66,20 +77,66 @@ final class AuthSession {
 
     func signUp(email: String, password: String) async {
         guard let client else { return }
-        lastError = nil
+        clearMessages()
         do {
             let result = try await client.auth.signUp(email: email, password: password)
             if result.session == nil {
-                lastError = "Check your email to confirm your account, then sign in."
+                info = "Check your email to confirm your account, then sign in."
             }
         } catch {
             lastError = error.localizedDescription
         }
     }
 
+    /// Emails a password-reset link. The link re-opens the app through the
+    /// villagefeed:// callback and lands in handleAuthCallback below.
+    func sendPasswordReset(email: String) async -> Bool {
+        guard let client else { return false }
+        clearMessages()
+        do {
+            try await client.auth.resetPasswordForEmail(email, redirectTo: SupabaseConfig.redirectURL)
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Sets the new password after a recovery link signed the user in.
+    func updatePassword(_ newPassword: String) async -> Bool {
+        guard let client else { return false }
+        clearMessages()
+        do {
+            _ = try await client.auth.update(user: UserAttributes(password: newPassword))
+            passwordRecoveryPending = false
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Handles villagefeed:// URLs from auth emails (password reset, email
+    /// confirmation). Google OAuth completes inside ASWebAuthenticationSession
+    /// and never reaches here.
+    func handleAuthCallback(_ url: URL) {
+        guard let client, url.scheme == SupabaseConfig.redirectScheme else { return }
+        // Belt and braces: not every SDK flow emits .passwordRecovery, so also
+        // detect the recovery marker on the callback URL itself.
+        let isRecovery = url.absoluteString.contains("type=recovery")
+        Task {
+            do {
+                try await client.auth.session(from: url)
+                if isRecovery { passwordRecoveryPending = true }
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
     func signInWithGoogle() async {
         guard let client else { return }
-        lastError = nil
+        clearMessages()
         do {
             let authURL = try client.auth.getOAuthSignInURL(
                 provider: .google,

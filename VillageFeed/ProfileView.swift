@@ -41,27 +41,8 @@ struct ProfileView: View {
                 }
 
                 Section("Dietary needs (shown as pills on your card)") {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 8) {
-                        ForEach(DietaryTag.allCases) { tag in
-                            let on = store.me.dietaryTags.contains(tag)
-                            Button {
-                                if on {
-                                    store.me.dietaryTags.removeAll { $0 == tag }
-                                } else {
-                                    store.me.dietaryTags.append(tag)
-                                }
-                            } label: {
-                                Text(tag.rawValue)
-                                    .font(.caption.weight(.medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 6)
-                                    .background(Capsule().fill(on ? Color.orange.opacity(0.25) : Color.gray.opacity(0.12)))
-                                    .foregroundStyle(on ? .orange : .secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    DietaryTagGrid(selection: $store.me.dietaryTags)
+                        .padding(.vertical, 4)
                 }
 
                 Section("Dishes you'll trade") {
@@ -175,6 +156,34 @@ struct ProfileView: View {
 
     private var statusBadge: some View {
         StatusBadge(status: store.me.status)
+    }
+}
+
+/// Tappable dietary-pill grid, shared by ProfileView and the setup wizard.
+struct DietaryTagGrid: View {
+    @Binding var selection: [DietaryTag]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], spacing: 8) {
+            ForEach(DietaryTag.allCases) { tag in
+                let on = selection.contains(tag)
+                Button {
+                    if on {
+                        selection.removeAll { $0 == tag }
+                    } else {
+                        selection.append(tag)
+                    }
+                } label: {
+                    Text(tag.rawValue)
+                        .font(.caption.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(on ? Color.orange.opacity(0.25) : Color.gray.opacity(0.12)))
+                        .foregroundStyle(on ? .orange : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 

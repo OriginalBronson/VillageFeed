@@ -6,6 +6,11 @@ into a week of different dinners.
 
 ## What's here (v0.1 — local prototype, no backend)
 
+- **Sign-in & first run** — branded sign-in / create-account screen (validation, show/hide
+  password, password reset by email that deep-links back into the app), then a four-step
+  **profile creation wizard** (name & neighborhood → photo & bio → dietary pills → first
+  dish) ending in submit-for-review. Returning users hydrate their profile from the server,
+  so signing in on a new device restores your card.
 - **Discover** — Tinder-style card deck of nearby cooks *and* open supper groups. Right-swipe
   a cook → match if mutual; right-swipe a group → join it. Cards show the main photo (person
   or dish), advertised dishes with portion counts, and dietary-constraint pills.
@@ -28,7 +33,8 @@ into a week of different dinners.
 ## Backend (Supabase)
 
 - **Auth**: email/password + **Sign in with Google** (Supabase OAuth via
-  `ASWebAuthenticationSession`, callback `villagefeed://auth-callback`). With
+  `ASWebAuthenticationSession`, callback `villagefeed://auth-callback`); password-reset
+  emails reuse the same callback to deep-link into an in-app "new password" sheet. With
   `SupabaseConfig.swift` unfilled the app runs in demo mode on seeded data.
 - **Schema**: `supabase/migrations/0001_init.sql` — profiles, dishes, groups +
   membership, swipes, matches, blocks, reports, review queue; RLS on every

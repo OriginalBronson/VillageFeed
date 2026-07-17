@@ -18,12 +18,32 @@ struct VillageFeedApp: App {
                     case .loading:
                         ProgressView()
                     case .signedOut:
-                        SignInView()
-                    case .signedIn, .demo:
+                        AuthView()
+                    case .signedIn:
+                        switch store.profileReadiness {
+                        case .unknown:
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                Text("Setting the table…")
+                                    .foregroundStyle(.secondary)
+                            }
+                        case .needsSetup:
+                            ProfileSetupView()
+                        case .ready:
+                            RootView()
+                        }
+                    case .demo:
                         RootView()
                     }
                 }
             }
+            // The recovery sheet is attached inside the .environment/.tint
+            // modifiers so its content inherits them.
+            .sheet(isPresented: $auth.passwordRecoveryPending) {
+                NewPasswordSheet()
+            }
+            .onOpenURL { auth.handleAuthCallback($0) }
+            .tint(.villageAccent)
             .environment(store)
             .environment(entitlements)
             .environment(auth)
@@ -43,8 +63,15 @@ struct VillageFeedApp: App {
                 }
                 let sync = SyncService(client: client, userID: uid)
                 store.sync = sync
+                let firstAdoption = store.me.id != uid
                 store.adoptIdentity(uid)
+                // Returning users go straight in; first sign-ins on this
+                // install (and half-finished setups) wait for the server row
+                // to decide whether the creation wizard runs.
+                store.profileReadiness = (!firstAdoption && AppStore.looksLikeRealProfile(store.me))
+                    ? .ready : .unknown
                 Task {
+                    store.applyMyRemoteProfile(await sync.fetchMyProfile())
                     if let snapshot = try? await sync.pull() {
                         store.applyRemote(snapshot)
                     }
@@ -55,6 +82,11 @@ struct VillageFeedApp: App {
             }
         }
     }
+}
+
+extension Color {
+    /// VillageFeed's warm brand orange, applied app-wide as the tint.
+    static let villageAccent = Color(hue: 0.09, saturation: 0.85, brightness: 0.85)
 }
 
 struct RootView: View {
@@ -69,7 +101,6 @@ struct RootView: View {
             ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.crop.circle") }
         }
-        .tint(Color(hue: 0.09, saturation: 0.85, brightness: 0.85))
     }
 }
 
