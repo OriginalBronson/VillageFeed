@@ -379,19 +379,41 @@ final class AppStore {
     // empty state ("4 cooks hidden by your filters") reads this.
     private(set) var hiddenByFiltersCount = 0
 
+    /// The allergy-grade tags and the free-text keyword that marks a dish as
+    /// containing them. Shared by the deck's hard screens (plan 06-A1) and the
+    /// pledge-time conflict warning (plan 13 #2). Deliberately short: these are
+    /// the two anaphylaxis-class declarations; intolerances stay soft filters.
+    static let allergyScreens: [(tag: DietaryTag, keyword: String)] =
+        [(.nutAllergy, "nut"), (.shellfishAllergy, "shellfish")]
+
     /// Hard screens (plan 06-A1): never show a card *incompatible by
     /// declaration*. Conservative — allergen notes are free text, so only the
     /// viewer's structured allergy tags auto-screen, and only when EVERY dish
     /// declares the allergen. When unsure, show the card.
     private func passesHardScreens(_ person: UserProfile) -> Bool {
         guard !person.dishes.isEmpty else { return true }
-        let screens: [(DietaryTag, String)] = [(.nutAllergy, "nut"), (.shellfishAllergy, "shellfish")]
-        for (tag, keyword) in screens where me.dietaryTags.contains(tag) {
+        for (tag, keyword) in Self.allergyScreens where me.dietaryTags.contains(tag) {
             if person.dishes.allSatisfy({ $0.allergenNote.localizedCaseInsensitiveContains(keyword) }) {
                 return false
             }
         }
         return true
+    }
+
+    /// Pledge-time dietary conflict check (plan 13 #2). Discover's hard screens
+    /// protect the deck, but inside a group that protection doesn't apply — the
+    /// app can know both "this dish contains nuts" and "Maya is nut-allergic"
+    /// and should say so at the moment it matters. Returns the members whose
+    /// declared allergy the dish's allergen note matches. Warning, not a block:
+    /// neighbors talk.
+    func dietaryConflicts(dish: Dish, in group: MealGroup) -> [UserProfile] {
+        guard !dish.allergenNote.isEmpty else { return [] }
+        return members(of: group).filter { member in
+            member.id != me.id && Self.allergyScreens.contains { tag, keyword in
+                member.dietaryTags.contains(tag)
+                    && dish.allergenNote.localizedCaseInsensitiveContains(keyword)
+            }
+        }
     }
 
     /// "Must be" filters (plan 06-A3): the cook carries every required tag.
@@ -567,7 +589,10 @@ final class AppStore {
 
     @discardableResult
     func sendMessage(_ text: String, in group: MealGroup, isSystem: Bool = false) -> GroupMessage? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Cap mirrors the server's char_length check (migration 0003). Enforced
+        // here so an oversize message can't become a poison outbox op that the
+        // server rejects on every retry, forever.
+        let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
         // Membership is checked against current store state, not the caller's copy.
         guard !trimmed.isEmpty,
               let current = groups.first(where: { $0.id == group.id }),
@@ -725,6 +750,13 @@ final class AppStore {
         sendMessage("\(me.name) proposed a handoff: \(spot), \(date.formatted(.dateTime.weekday(.wide).hour().minute()))",
                     in: group, isSystem: true)
         persist()
+    }
+
+    /// Plan 13 #1: true once this group has ever completed a trade — any of its
+    /// handoffs carries a good check-in. Gates the first-trade guide card.
+    func hasCompletedTrade(in group: MealGroup) -> Bool {
+        let groupHandoffIDs = Set(handoffs.filter { $0.groupID == group.id }.map(\.id))
+        return handoffRSVPs.contains { groupHandoffIDs.contains($0.handoffID) && $0.checkin == .good }
     }
 
     func rsvps(for handoff: Handoff) -> [HandoffRSVP] {

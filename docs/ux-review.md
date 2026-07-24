@@ -13,7 +13,23 @@
 > | B14 — no push notifications | ✅ Resolved | `PushManager.swift`, `0011_push_notifications.sql`, `send-push` |
 > | B16 — core loop has no transaction | ✅ Resolved | `0012_handoff_planner.sql`, `HandoffPlannerViews.swift` |
 > | Part 1 §1,2,3,8,9 (matches/undo/recovery/unmatch/seeking) | ✅ Present | done here independently; unmatch + undo-swipe ported in this synthesis |
-> | B3–B7, B9, B11–B13, B15, B17–B27 | ⚠️ Not re-verified | carried forward — triage against current code before actioning |
+> | B3/B19 — photo & dish loss in pushProfile | ✅ Resolved | plan 08 (`.remote` handled; nil `photo_path` omitted, not nulled) |
+> | B4 — no report path outside deck | ✅ Resolved | message reporting in chat (plan 07), blocked list (plan 03) |
+> | B5/B26 — moderation queue + API key shipped to all | ✅ Resolved | gated to internal/moderator builds (plan 01) |
+> | B6 — paywall disclosure | ✅ Resolved | paywall legal links (plan 01) |
+> | B7 — pendingReview never promoted | ✅ Resolved | `moderate-profile` AI triage auto-approve |
+> | B11 — merge without source consent | ✅ Resolved | merge consent (plan 03) |
+> | B12/B13 — offline queue, invisible sync failures | ✅ Resolved | outbox (plan 08), offline states (plan 03) |
+> | B17 — dietary tags decorative | ✅ Resolved | deck filters + hard screens (plan 06) |
+> | B18 — save vs resubmit | ✅ Resolved | profile edits enqueue `.pushProfile` |
+> | B20 — accessibility | ✅ Resolved | a11y pass (plan 03) |
+> | B9 — unbounded, ungeofenced pull | 🟡 Partial (2026-07-24) | dishes scoped to pulled owners, profiles bounded (newest 500); **geofenced RLS + real pagination deferred** — needs product decision on cross-area visibility |
+> | B15 — no image caching | ✅ Done (2026-07-24) | `URLCache.shared` sized for the photo deck |
+> | B27 — message length/rate | ✅ Done (2026-07-24) | length was already capped (0003); rate limit added (0016) + client cap mirrors server |
+> | B21 — member profiles from group detail | ⏸ Deferred | P2 polish; needs a detail-sheet route from member rows |
+> | B22 — likes-I-sent view / withdraw | ⏸ Deferred | P2; new server query + view |
+> | B24 — chat pagination past 500 | ⏸ Deferred | P2; irrelevant below real message volume |
+> | B25 — demo-mode copy, `hasOnboarded` on delete | ⏸ Deferred | P2 cosmetic |
 >
 > The rest of the document is the original review, preserved verbatim as a backlog
 > source. Treat P0/P1 rows as candidates to confirm, not open bugs, until checked

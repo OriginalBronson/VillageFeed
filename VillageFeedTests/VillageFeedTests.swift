@@ -629,6 +629,52 @@ struct VillageFeedTests {
         #expect(store.deck.contains { $0.id == mixedCook.id })
     }
 
+    // MARK: - Plan 13: first-trade guide & pledge-time dietary conflicts
+
+    @Test func dietaryConflictFlagsAllergicGroupMember() {
+        let store = AppStore(persisted: false, seeded: true)
+        let allergic = UserProfile(name: "Maya", neighborhood: "Maplewood", bio: "",
+                                   photo: .placeholder(emoji: "🌸", hue: 0.5),
+                                   dietaryTags: [.nutAllergy])
+        store.people.append(allergic)
+        let group = store.createGroup(named: "Test Table", emoji: "🍽️", with: allergic)
+
+        let pecanPie = Dish(name: "Pecan Pie", emoji: "🥧", allergenNote: "contains nuts")
+        let soup = Dish(name: "Safe Soup", emoji: "🥣", allergenNote: "")
+        // The dish's note matches Maya's declared allergy → she's flagged.
+        #expect(store.dietaryConflicts(dish: pecanPie, in: group).map(\.id) == [allergic.id])
+        // No allergen note → no conflict (free text is only trusted positively).
+        #expect(store.dietaryConflicts(dish: soup, in: group).isEmpty)
+        // I never conflict with my own dish, whatever my tags say.
+        store.me.dietaryTags = [.nutAllergy]
+        #expect(!store.dietaryConflicts(dish: pecanPie, in: group).map(\.id).contains(store.me.id))
+    }
+
+    @Test func firstTradeGuideGateFlipsOnGoodCheckin() {
+        let store = AppStore(persisted: false, seeded: true)
+        let partner = store.people[0]
+        let group = store.createGroup(named: "First Table", emoji: "🍲", with: partner)
+        #expect(!store.hasCompletedTrade(in: group))
+
+        // Walk the choreography the guide sequences: pledge → handoff → check in.
+        store.pledge(dish: Dish(name: "Stew", emoji: "🍲"), portions: 4, in: group)
+        store.proposeHandoff(spot: "Library steps", at: .now, in: group)
+        let handoff = store.handoff(in: group)!
+        #expect(!store.hasCompletedTrade(in: group)) // planned ≠ completed
+        store.checkIn(.good, for: handoff)
+        #expect(store.hasCompletedTrade(in: group))
+    }
+
+    @Test func oversizeMessageIsCappedNotPoisoned() {
+        let store = AppStore(persisted: false, seeded: true)
+        store.join(store.groups[0])
+        let sent = store.sendMessage(String(repeating: "x", count: 3000), in: store.groups[0])
+        // Capped to the server's char_length check (0003) so the outbox op
+        // can't fail on every retry forever.
+        #expect(sent != nil)
+        #expect(sent!.text.count == 2000)
+    }
+
     @Test func deckFiltersHideAndCountHonestly() {
         let store = AppStore(persisted: false, seeded: true)
         let before = store.deck.count

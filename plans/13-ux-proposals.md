@@ -1,5 +1,13 @@
 # Plan 13 — Proposed: the features that finish the experience
 
+**Status (2026-07-24):** #1 (first-trade guide) and #2 (dietary conflict
+warning) are **built** — see `FirstTradeGuideSection` and
+`AppStore.dietaryConflicts(dish:in:)`. #3 (handoff reminder push) is
+**deferred**: the client/token side is ready (plan 04), but the server needs a
+pg_cron scan → send-push job, which is dashboard infra work, not app code —
+queue it with the next DISPATCH round. #4–8 stay gated on their live-usage
+triggers, as designed.
+
 Plans 01–12 are executed (see 00-roadmap status). This doc proposes what to
 build *next*, chosen by walking the product as three people: a brand-new cook,
 a member of a working supper group, and a cook whose group went quiet. Each

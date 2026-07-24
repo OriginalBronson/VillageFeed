@@ -1,5 +1,45 @@
 import SwiftUI
 
+/// First-trade guide (plan 13 #1): new two-person groups get a three-step
+/// choreography card — the mechanics (pledges, handoffs, check-ins) all exist,
+/// but nothing sequenced them for first-timers. Each step lights as it
+/// completes; the card disappears after the group's first completed trade.
+struct FirstTradeGuideSection: View {
+    @Environment(AppStore.self) private var store
+    let group: MealGroup
+
+    var body: some View {
+        let pledged = store.pledges(in: group).count >= 2
+        let planned = store.handoff(in: group) != nil
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Your first trade, in three steps")
+                    .font(.subheadline.weight(.semibold))
+                step(1, done: pledged,
+                     "Both pledge a dish below — that's this week's table.")
+                step(2, done: planned,
+                     "Agree on a public spot and time for the handoff.")
+                step(3, done: false,
+                     "Trade portions, then check in so the app knows it worked.")
+            }
+            .padding(.vertical, 4)
+        }
+        .listRowBackground(Color.villageAccent.opacity(0.08))
+    }
+
+    private func step(_ number: Int, done: Bool, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: done ? "checkmark.circle.fill" : "\(number).circle")
+                .foregroundStyle(done ? Color.villageAccent : Color.secondary)
+                .font(.body)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(done ? .secondary : .primary)
+                .strikethrough(done, color: .secondary)
+        }
+    }
+}
+
 /// "This week's table" (plan 05): pledges → handoff plan → check-in. Lives as
 /// a section inside GroupDetailView's List. Replaces the old first-profile-dish
 /// guess with actual commitments.
@@ -204,6 +244,24 @@ struct PledgeSheet: View {
                     }
                     Section("Portions") {
                         Stepper("Portions to trade: \(portions)", value: $portions, in: 1...50)
+                    }
+                    // Plan 13 #2: the app knows both the dish's allergens and the
+                    // table's declared allergies — say so at pledge time, when it
+                    // matters. A warning, not a block: neighbors talk.
+                    if let dish = selectedDish {
+                        let conflicted = store.dietaryConflicts(dish: dish, in: group)
+                        if !conflicted.isEmpty {
+                            Section {
+                                Label {
+                                    Text("\(conflicted.map(\.name).formatted(.list(type: .and))) \(conflicted.count == 1 ? "has" : "have") a declared allergy this dish's allergen note matches. Consider one of your other dishes, or note cross-contamination in table talk.")
+                                        .font(.callout)
+                                } icon: {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                            .listRowBackground(Color.orange.opacity(0.1))
+                        }
                     }
                 }
             }

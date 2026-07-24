@@ -83,6 +83,19 @@ Also shipped beyond the gate list: plans 04 (push), 05 (handoff planner),
 06 (filters + ZIP), 10 (trust v1), 12 (invite loop, village threshold),
 02-P2 (incidents, appeal copy, moderator build).
 
+High-leverage pass (2026-07-24) — the imported backlog fully triaged (verdicts in
+[docs/ux-review.md](../docs/ux-review.md)) and plan 13's pre-launch items built:
+- [x] Plan 13 #2: dietary conflict warning at pledge time (the cheapest safety
+  feature left — the app knew both facts and now says so)
+- [x] Plan 13 #1: first-trade guide card for new two-person groups
+- [x] Message rate limit server-side (migration 0016) + client cap so an oversize
+  message can't poison the outbox (ux-review B27)
+- [x] Dishes pull scoped to visible cooks + profiles bounded; image cache sized
+  for the deck (ux-review B9 partial, B15)
+- Deferred, with reasons recorded in docs/ux-review.md: B9's geofenced RLS +
+  pagination (needs a cross-area visibility decision), plan 13 #3 reminder push
+  (pg_cron dashboard work → next DISPATCH round), B21/B22/B24/B25 (P2 polish)
+
 Synthesis pass (2026-07-24) — salvaged from a parallel working copy and adapted to
 the outbox architecture:
 - [x] Unmatch as a light-touch alternative to blocking (migration 0015, `.unmatch`

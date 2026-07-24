@@ -13,6 +13,14 @@ struct VillageFeedApp: App {
     // differs from the one shipping in this build.
     @State private var needsTosReaccept = LegalDocs.needsReacceptance
 
+    init() {
+        // ux-review B15: AsyncImage rides URLCache.shared, whose default is too
+        // small for a photo deck — cards refetched on every render and flickered.
+        // Storage responses are cacheable (cacheControl 3600 set at upload).
+        URLCache.shared = URLCache(memoryCapacity: 64 * 1024 * 1024,
+                                   diskCapacity: 256 * 1024 * 1024)
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {

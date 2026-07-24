@@ -131,6 +131,12 @@ struct GroupDetailView: View {
     var body: some View {
         if let group {
             List {
+                // First-timers get choreography (plan 13 #1): the guide card
+                // sequences pledge → spot → check-in until the first trade lands.
+                if group.memberIDs.count == 2 && !store.hasCompletedTrade(in: group) {
+                    FirstTradeGuideSection(group: group)
+                }
+
                 // Actual weekly commitments, not first-profile-dish guesses
                 // (plan 05) — pledge, plan the handoff, check in.
                 WeekTableSection(group: group)

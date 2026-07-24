@@ -226,6 +226,12 @@ final class SyncService: SyncBackend {
         if let withArea: [ProfileRow] = try? await client.from("profiles")
             .select("id,name,neighborhood,bio,dietary_tags,status,photo_path,area_code,created_at")
             .neq("id", value: userID)
+            // Blowup guard, not pagination (ux-review B9): newest cooks first,
+            // bounded. The real fix — geofenced RLS + paging — is a deferred
+            // design (see docs/ux-review.md); this stops one dense ZIP from
+            // downloading the whole table meanwhile.
+            .order("created_at", ascending: false)
+            .limit(500)
             .execute().value {
             profiles = withArea
         } else {
@@ -235,9 +241,19 @@ final class SyncService: SyncBackend {
                 .neq("id", value: userID)
                 .execute().value
         }
-        let dishes: [DishRow] = try await client.from("dishes")
-            .select("id,owner_id,name,emoji,blurb,portions,allergen_note,photo_path")
-            .execute().value
+        // Dishes scoped to the cooks actually pulled (ux-review B9) — this was
+        // an unbounded fetch of every dish in the database. Chunked so the
+        // in-list can't outgrow URL length limits.
+        var dishes: [DishRow] = []
+        let ownerIDs = profiles.map { $0.id.uuidString.lowercased() }
+        for start in stride(from: 0, to: ownerIDs.count, by: 100) {
+            let chunk = Array(ownerIDs[start..<min(start + 100, ownerIDs.count)])
+            let rows: [DishRow] = try await client.from("dishes")
+                .select("id,owner_id,name,emoji,blurb,portions,allergen_note,photo_path")
+                .in("owner_id", values: chunk)
+                .execute().value
+            dishes.append(contentsOf: rows)
+        }
         let groups: [GroupRow] = try await client.from("groups")
             .select("id,name,emoji,seeking_members,open_to_merge,created_by")
             .execute().value
