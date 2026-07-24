@@ -278,6 +278,48 @@ struct VillageFeedTests {
         #expect(store.matches.contains(liker))
     }
 
+    @Test func undoQueuesAServerSideSwipeDelete() async {
+        let store = AppStore(persisted: false, seeded: true)
+        let backend = ScriptedBackend()
+        store.sync = backend
+        let nonLiker = store.people.first { !$0.likesYou }!
+        await store.swipe(.person(nonLiker), liked: false)
+        store.undoLastSwipe()
+        await store.drainOutbox()
+        // The swipe must be dropped server-side too, or the next pull re-hides
+        // the rescued card (the bug this salvage fixed).
+        #expect(backend.performed.contains {
+            if case .deleteSwipe(let id) = $0 { return id == nonLiker.id }; return false
+        })
+    }
+
+    @Test func unmatchDropsTheMatchAndQueuesServerDelete() async {
+        let store = AppStore(persisted: false, seeded: true)
+        let backend = ScriptedBackend()
+        store.sync = backend
+        let person = store.people[0]
+        store.matchedIDs.append(person.id)
+        #expect(store.matches.contains(person))
+
+        store.unmatch(person)
+        #expect(!store.matches.contains(person))
+        #expect(!store.matchedIDs.contains(person.id))
+
+        await store.drainOutbox()
+        #expect(backend.performed.contains {
+            if case .unmatch(let id) = $0 { return id == person.id }; return false
+        })
+    }
+
+    @Test func unmatchOnANonMatchIsANoOp() {
+        let store = AppStore(persisted: false, seeded: true)
+        let person = store.people[0]
+        store.unmatch(person) // never matched
+        #expect(store.outbox.allSatisfy {
+            if case .unmatch = $0 { return false }; return true
+        })
+    }
+
     @Test func deckPutsMyNeighborhoodFirst() {
         let store = AppStore(persisted: false, seeded: true)
         // Me is in Maplewood; the first person cards should all be Maplewood cooks

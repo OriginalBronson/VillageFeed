@@ -450,6 +450,9 @@ final class AppStore {
         guard !matchedIDs.contains(card.id),
               !myGroups.contains(where: { $0.id == card.id }) else { return }
         swipedIDs.removeAll { $0 == card.id }
+        // Drop the swipe server-side too, or the next pull re-adds it to
+        // swipedIDs and the rescued card freezes out of the deck again.
+        enqueue(.deleteSwipe(card.id))
         deck.insert(card, at: 0)
         persist()
     }
@@ -812,6 +815,16 @@ final class AppStore {
             if id == me.id { return me }
             return people.first { $0.id == id }
         }
+    }
+
+    /// Drops a match without the blunt instrument of a block. The swipe row
+    /// stays, so an unmatched person doesn't resurface in the deck, and — unlike
+    /// blocking — no report is filed and the other person can still be seen.
+    func unmatch(_ person: UserProfile) {
+        guard matchedIDs.contains(person.id) else { return }
+        matchedIDs.removeAll { $0 == person.id }
+        enqueue(.unmatch(person.id))
+        persist()
     }
 
     // MARK: - Safety

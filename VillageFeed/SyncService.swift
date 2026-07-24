@@ -523,6 +523,26 @@ final class SyncService: SyncBackend {
             .execute()
     }
 
+    /// Removes the match row (the table stores one row per pair with a < b).
+    /// Requires the delete policy from migration 0015.
+    func deleteMatch(otherID: UUID) async throws {
+        let (a, b) = uuidOrder(userID, otherID) ? (userID, otherID) : (otherID, userID)
+        try await client.from("matches").delete()
+            .eq("a", value: a)
+            .eq("b", value: b)
+            .execute()
+    }
+
+    /// Undoes a swipe server-side so the card doesn't come back frozen out of the
+    /// next pull's `swipedIDs` — used by undoLastSwipe, which only rescues cards
+    /// before an outcome (matches/joins are never undone).
+    func deleteSwipe(targetID: UUID) async throws {
+        try await client.from("swipes").delete()
+            .eq("swiper_id", value: userID)
+            .eq("target_id", value: targetID)
+            .execute()
+    }
+
     private struct GroupUpdate: Encodable {
         var name: String
         var emoji: String
@@ -764,6 +784,8 @@ final class SyncService: SyncBackend {
             case .markRead(let groupID, let at): try await markRead(groupID: groupID, at: at)
             case .block(let id): try await recordBlock(blockedID: id)
             case .unblock(let id): try await removeBlock(blockedID: id)
+            case .unmatch(let id): try await deleteMatch(otherID: id)
+            case .deleteSwipe(let id): try await deleteSwipe(targetID: id)
             case .report(let subjectID, let reason, let detail):
                 try await fileReport(subjectID: subjectID, reason: reason, detail: detail)
             case .pushProfile(let profile): try await pushProfile(profile)

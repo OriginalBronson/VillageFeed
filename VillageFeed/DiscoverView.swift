@@ -520,6 +520,23 @@ struct GroupDetailSheet: View {
                     }
                 }
 
+                // Allergen exposure is the thing worth knowing before you join a
+                // table you'll be trading food with each week (salvaged from a
+                // parallel working copy; fits the app's safety-first stance).
+                let allergenNotes = Set(members.flatMap(\.dishes).map(\.allergenNote).filter { !$0.isEmpty })
+                if !allergenNotes.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Allergens declared at this table", systemImage: "exclamationmark.triangle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        ForEach(allergenNotes.sorted(), id: \.self) { note in
+                            Text("• \(note)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(.orange.opacity(0.08)))
+                }
+
                 Text("Swipe right on the card to join and trade a portion of your dish each week.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

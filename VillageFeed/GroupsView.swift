@@ -5,6 +5,7 @@ struct GroupsView: View {
     // Managed path so a tapped notification can land directly in a group's
     // chat (plan 04 deep links).
     @State private var path: [UUID] = []
+    @State private var unmatching: UserProfile?
     private var push = PushManager.shared
 
     var body: some View {
@@ -43,6 +44,13 @@ struct GroupsView: View {
                                             .buttonStyle(.bordered)
                                         }
                                     }
+                                    // Unmatching is the light-touch exit; blocking
+                                    // stays available but shouldn't be the only way out.
+                                    .swipeActions(edge: .trailing) {
+                                        Button("Unmatch", role: .destructive) {
+                                            unmatching = person
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -76,6 +84,18 @@ struct GroupsView: View {
                 if let group = store.groups.first(where: { $0.id == id }) {
                     GroupDetailView(groupID: group.id)
                 }
+            }
+            .confirmationDialog("Unmatch \(unmatching?.name ?? "")?",
+                                isPresented: Binding(get: { unmatching != nil },
+                                                     set: { if !$0 { unmatching = nil } }),
+                                titleVisibility: .visible) {
+                Button("Unmatch", role: .destructive) {
+                    if let person = unmatching { store.unmatch(person) }
+                    unmatching = nil
+                }
+                Button("Cancel", role: .cancel) { unmatching = nil }
+            } message: {
+                Text("You'll stop seeing each other in Matches. Neither of you is notified, and they won't reappear in Discover.")
             }
         }
         .onChange(of: push.pendingRoute) { consumeGroupRoute() }

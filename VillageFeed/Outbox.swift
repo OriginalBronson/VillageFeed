@@ -17,6 +17,8 @@ enum PendingOp: Codable, Equatable {
     case markRead(groupID: UUID, at: Date)
     case block(UUID)
     case unblock(UUID)
+    case unmatch(UUID)
+    case deleteSwipe(UUID)
     case report(subjectID: UUID, reason: ReportReason, detail: String?)
     case pushProfile(UserProfile)
     case upsertPledge(WeekPledge)
