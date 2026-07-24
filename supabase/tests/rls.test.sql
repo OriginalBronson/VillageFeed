@@ -83,7 +83,9 @@ select throws_ok(
   '42501', null, 'non-member B cannot write into the group');
 
 -- ---------- Report rate limit (0008 trigger) ----------
-select test_as('00000000-0000-0000-0000-00000000000b');
+-- Seeding needs superuser: drop the impersonation left over from the
+-- previous section before touching auth.users / profiles.status.
+select set_config('role', 'none', true);
 -- 5 reports against C land (each auto-freezes + opens a case; duplicates are
 -- no-ops, so spread across seeded synthetic subjects).
 insert into auth.users (id, email)
@@ -91,6 +93,7 @@ insert into auth.users (id, email)
          'victim' || i || '@test.local'
   from generate_series(20, 24) i;
 update public.profiles set status = 'active' where name = '';
+select test_as('00000000-0000-0000-0000-00000000000b');
 select lives_ok(
   $$ insert into public.reports (reporter_id, subject_id, reason)
      select '00000000-0000-0000-0000-00000000000b',
