@@ -122,9 +122,26 @@ private struct SetupBasicsStep: View {
                 SetupField(icon: "mappin.and.ellipse") {
                     TextField("Neighborhood", text: $store.me.neighborhood)
                 }
-                Text("Use whatever label your neighbors would recognize — VillageFeed never collects your precise location.")
+                SetupField(icon: "number") {
+                    TextField("ZIP code (optional)", text: Binding(
+                        get: { store.me.areaCode ?? "" },
+                        set: { store.me.areaCode = $0.isEmpty ? nil : $0 }
+                    ))
+                    .keyboardType(.numberPad)
+                    .textContentType(.postalCode)
+                }
+                Text("Use whatever neighborhood label your neighbors would recognize. Your ZIP sorts nearby cooks first and is never shown — VillageFeed never collects your precise location.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // Invite attribution (plan 12-B): tells us which loops work.
+                SetupField(icon: "envelope.open") {
+                    TextField("Invite code (optional)", text: Binding(
+                        get: { UserDefaults.standard.string(forKey: "referredBy") ?? "" },
+                        set: { UserDefaults.standard.set($0.trimmingCharacters(in: .whitespaces).lowercased(), forKey: "referredBy") }
+                    ))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                }
             }
         }
     }

@@ -1,4 +1,6 @@
 import SwiftUI
+import AuthenticationServices
+import CryptoKit
 
 /// Sign-in / create-account screen, shown whenever a configured app has no
 /// session. Password recovery is a sheet here (request the email) plus a
@@ -22,7 +24,11 @@ struct AuthView: View {
     @State private var revealPassword = false
     @State private var busy = false
     @State private var showingReset = false
+    // Raw nonce for the in-flight Apple request; its SHA-256 goes to Apple,
+    // the raw value goes to Supabase for verification.
+    @State private var appleNonce = ""
     @FocusState private var focus: Field?
+    @Environment(\.colorScheme) private var colorScheme
 
     private var trimmedEmail: String {
         email.trimmingCharacters(in: .whitespaces)
@@ -138,6 +144,25 @@ struct AuthView: View {
                     Rectangle().fill(.quaternary).frame(height: 1)
                 }
 
+                // Apple sits above Google: HIG asks for equal-or-greater
+                // prominence for Sign in with Apple (Guideline 4.8).
+                SignInWithAppleButton(.continue) { request in
+                    let nonce = AuthView.randomNonce()
+                    appleNonce = nonce
+                    request.requestedScopes = [.fullName, .email]
+                    request.nonce = AuthView.sha256(nonce)
+                } onCompletion: { result in
+                    busy = true
+                    let nonce = appleNonce
+                    Task {
+                        await auth.signInWithApple(result: result, rawNonce: nonce)
+                        busy = false
+                    }
+                }
+                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                .frame(height: 48)
+                .disabled(busy)
+
                 Button {
                     busy = true
                     Task {
@@ -182,6 +207,19 @@ struct AuthView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
+    }
+
+    // MARK: - Apple nonce helpers
+
+    static func randomNonce(length: Int = 32) -> String {
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._")
+        var bytes = [UInt8](repeating: 0, count: length)
+        _ = SecRandomCopyBytes(kSecRandomDefault, length, &bytes)
+        return String(bytes.map { charset[Int($0) % charset.count] })
+    }
+
+    static func sha256(_ input: String) -> String {
+        SHA256.hash(data: Data(input.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func submit() {

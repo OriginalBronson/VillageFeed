@@ -1,3 +1,6 @@
+// Client-side AI review is moderator-build-only (plan 01-A3): consumer builds
+// never carry an API-key path; triage runs server-side via moderate-profile.
+#if MODERATOR_BUILD
 import Foundation
 
 // Moderation calls go to the Claude API directly (no Swift SDK exists).
@@ -38,8 +41,9 @@ enum AIReviewer {
         portions of home-cooked meals. Review the profile below and return a verdict:
         - "approve": ordinary profile about food and meal trading, nothing unsafe.
         - "reject": clear violation — sexual content, harassment, hate, selling non-food goods or \
-        services, soliciting money, contact-info harvesting, or content dangerous to food safety \
-        (e.g. advertising raw-milk products to strangers as safe).
+        services, soliciting money, contact-info harvesting, content dangerous to food safety, or \
+        prohibited foods (raw milk, home-canned low-acid goods, wild-harvested mushrooms, raw or \
+        undercooked meat preparations, alcohol — Terms of Service §5).
         - "escalate": ambiguous, or a report alleging real-world harm (harassment, food safety) that \
         a human should judge.
         Reported profiles are already frozen, so a wrong "approve" unfreezes them — be conservative.
@@ -100,3 +104,4 @@ enum AIReviewer {
         return (verdict, parsed.rationale)
     }
 }
+#endif

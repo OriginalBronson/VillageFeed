@@ -1,0 +1,62 @@
+# Release pipeline (plan 11-B): every TestFlight build comes from a tagged
+# commit — no hand-built archives. Tag vX.Y.Z and push to trigger.
+#
+# Required repo secrets (Settings → Secrets → Actions):
+#   ASC_KEY_ID       App Store Connect API key id
+#   ASC_ISSUER_ID    App Store Connect issuer id
+#   ASC_KEY_P8       contents of the .p8 API key
+# Signing uses Xcode cloud-managed certificates (-allowProvisioningUpdates).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  archive:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set build number from run number
+        run: |
+          cd VillageFeed.xcodeproj
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*/CURRENT_PROJECT_VERSION = ${{ github.run_number }}/g" project.pbxproj
+
+      - name: Import App Store Connect API key
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.ASC_KEY_P8 }}" > ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -project VillageFeed.xcodeproj \
+            -scheme VillageFeed \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/VillageFeed.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+
+      - name: Export IPA
+        run: |
+          cat > ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/VillageFeed.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8

@@ -20,7 +20,10 @@ into a week of different dinners.
   solo member of many groups. Matches get their own section with a start-a-group shortcut.
 - **Likes** — the paid tier. Free users see a blurred grid + count; **VillageFeed Plus**
   (StoreKit 2 subscription, `app.villagefeed.plus.monthly`, simulator-testable via
-  `Products.storekit`) reveals everyone who swiped right on you.
+  `Products.storekit`) reveals everyone who swiped right on you. Purchases sync
+  server-side: the app posts the signed transaction to the `sync-entitlement` edge
+  function, which verifies Apple's certificate chain before unlocking the
+  `who_liked_me()` identities RPC. Premium roadmap: `docs/premium-features.md`.
 - **Profile** — name/neighborhood/bio, photo picker (use yourself or a dish as the main
   photo), dietary pills, dish advertising with **photos, blurbs, portions, and allergen
   notes** (images downscaled to 1200px JPEG before upload), submit-for-review, an in-app
@@ -44,13 +47,19 @@ into a week of different dinners.
   persistence (`Persistence.swift`) keeps state across relaunches either way.
 - **Moderation**: `supabase/functions/moderate-profile` runs the AI triage
   server-side with a secret key; the in-app key path remains for local dev.
+- **Entitlements**: `supabase/functions/sync-entitlement` verifies StoreKit 2
+  signed transactions (Apple root pinned, `appAccountToken` must match the
+  signed-in user) and maintains `is_plus` + `plus_expires_at`, which gate
+  `who_liked_me()` (migrations 0002/0006).
 - **Setup**: `DISPATCH.md` is the browser runbook (Supabase project, Google
   OAuth client, provider config, secrets) plus the morning terminal checklist.
 
 ## Build & test
 
 - Requires Xcode 16+. Open `VillageFeed.xcodeproj`, run the `VillageFeed` scheme.
-- CLI: `xcodebuild test -project VillageFeed.xcodeproj -scheme VillageFeed -destination 'platform=iOS Simulator,name=iPhone 16'`
+- CLI: `xcodebuild test -project VillageFeed.xcodeproj -scheme VillageFeed -destination 'platform=iOS Simulator,name=iPhone 17'`
+  (any installed simulator works — `xcrun simctl list devices available` shows yours; a name whose
+  only runtime is older than `OS:latest` fails the destination lookup)
 - The scheme references `Products.storekit`, so Plus purchases work in the simulator.
 - AI moderation: set an Anthropic API key in Profile → Moderation (dev-only convenience —
   production must proxy through a server).
@@ -61,3 +70,19 @@ into a week of different dinners.
 - Cook once, eat all week.
 - Your table, multiplied.
 - The neighborhood is the menu.
+
+## Moderator build
+
+The in-app review queue (Profile → Moderation) and the client-side AI reviewer
+are compiled **only** when the `MODERATOR_BUILD` flag is set — consumer App
+Store builds never contain them (plan 01-A3 / 02-§7). To build the moderator
+variant for internal TestFlight:
+
+```sh
+xcodebuild -project VillageFeed.xcodeproj -scheme VillageFeed \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) MODERATOR_BUILD' build
+```
+
+or add `MODERATOR_BUILD` to *Active Compilation Conditions* in a duplicated
+"VillageFeed (Moderator)" scheme in Xcode. Distribute via internal TestFlight
+to moderators only.
