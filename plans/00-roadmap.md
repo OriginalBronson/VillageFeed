@@ -82,3 +82,13 @@ remaining items are browser work (DISPATCH-3.md), counsel, and physical-device p
 Also shipped beyond the gate list: plans 04 (push), 05 (handoff planner),
 06 (filters + ZIP), 10 (trust v1), 12 (invite loop, village threshold),
 02-P2 (incidents, appeal copy, moderator build).
+
+Synthesis pass (2026-07-24) — salvaged from a parallel working copy and adapted to
+the outbox architecture:
+- [x] Unmatch as a light-touch alternative to blocking (migration 0015, `.unmatch`
+  outbox op, swipe-to-unmatch in Groups)
+- [x] `undoLastSwipe` now deletes the swipe server-side (`.deleteSwipe` op) so the
+  rescued card doesn't refreeze on the next pull
+- [x] Group detail sheet surfaces allergens declared at the table
+- See [`docs/ux-review.md`](../docs/ux-review.md) for the imported external backlog
+  (several P0/P1 items already resolved here; status map at the top of that file)

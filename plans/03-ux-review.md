@@ -10,6 +10,11 @@ would leave in an App Store review. Each finding has a priority:
 The four biggest P2 themes have their own feature plans (04–07); they're
 cross-referenced, not duplicated, here.
 
+> See also [`docs/ux-review.md`](../docs/ux-review.md) — a **second, external** UX
+> review imported from a parallel working copy, with a backend-heavy B1–B27 backlog.
+> It's a cross-check, not a competing source of truth; this plan is authoritative
+> where the two overlap.
+
 ---
 
 ## Onboarding & sign-in

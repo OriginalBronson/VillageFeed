@@ -18,6 +18,12 @@
 > The rest of the document is the original review, preserved verbatim as a backlog
 > source. Treat P0/P1 rows as candidates to confirm, not open bugs, until checked
 > against the files named above.
+>
+> **Relationship to `plans/03-ux-review.md`:** that file is this project's *own*
+> curated, screen-by-screen audit — the one that drove feature plans 04–07 and was
+> acted on. This file is a *second, external* review imported from a parallel working
+> copy; keep it as a backend-heavy backlog cross-check, not a competing source of
+> truth. Where the two overlap, `plans/03` is authoritative.
 
 ---
 

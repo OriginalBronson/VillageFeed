@@ -57,7 +57,9 @@ into a week of different dinners.
 ## Build & test
 
 - Requires Xcode 16+. Open `VillageFeed.xcodeproj`, run the `VillageFeed` scheme.
-- CLI: `xcodebuild test -project VillageFeed.xcodeproj -scheme VillageFeed -destination 'platform=iOS Simulator,name=iPhone 16'`
+- CLI: `xcodebuild test -project VillageFeed.xcodeproj -scheme VillageFeed -destination 'platform=iOS Simulator,name=iPhone 17'`
+  (any installed simulator works — `xcrun simctl list devices available` shows yours; a name whose
+  only runtime is older than `OS:latest` fails the destination lookup)
 - The scheme references `Products.storekit`, so Plus purchases work in the simulator.
 - AI moderation: set an Anthropic API key in Profile → Moderation (dev-only convenience —
   production must proxy through a server).
