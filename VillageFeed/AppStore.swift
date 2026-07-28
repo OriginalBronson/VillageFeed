@@ -217,6 +217,8 @@ final class AppStore {
         groups = snapshot.groups
         swipedIDs = snapshot.swipedIDs
         blockedIDs = snapshot.blockedIDs
+        // Matches are server-truth once synced (survives reinstall / other devices).
+        matchedIDs = snapshot.matchedIDs
         remoteLikedMeCount = snapshot.likedMeCount
         // Union by id so a message sent while offline isn't dropped by the pull.
         let remoteIDs = Set(snapshot.messages.map(\.id))
@@ -521,8 +523,14 @@ final class AppStore {
             matchedIDs.append(person.id)
             return .matched(person)
         case .group(let group):
-            guard liked else { return .none }
-            return join(group)
+            if liked { return join(group) }
+            // Record the pass server-side, or a passed group reappears out of the
+            // next pull's swipedIDs on this or another device. Queue it if offline.
+            if let sync {
+                do { _ = try await sync.recordSwipe(targetID: card.id, kind: "group", liked: false) }
+                catch { enqueue(.swipe(targetID: card.id, kind: "group", liked: false)) }
+            }
+            return .none
         }
     }
 
