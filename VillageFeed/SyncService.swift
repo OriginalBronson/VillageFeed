@@ -211,6 +211,8 @@ final class SyncService: SyncBackend {
         var groups: [MealGroup]
         var swipedIDs: [UUID]
         var blockedIDs: [UUID]
+        // Server-truth matches so they survive reinstall / appear cross-device.
+        var matchedIDs: [UUID]
         var likedMeCount: Int
         var messages: [GroupMessage]
         // My server-side read markers per group (plan 07 unread model).
@@ -277,6 +279,11 @@ final class SyncService: SyncBackend {
             .select("blocker_id,blocked_id")
             .eq("blocker_id", value: userID)
             .execute().value
+        // Matches are stored one row per pair (a < b); either side may be me.
+        let matches: [MatchRow] = (try? await client.from("matches")
+            .select("a,b")
+            .or("a.eq.\(userID),b.eq.\(userID)")
+            .execute().value) ?? []
 
         // Chat: RLS scopes rows to groups I'm a member of. Tolerate the table
         // not existing yet (migration 0003 may lag the app build).
@@ -342,6 +349,7 @@ final class SyncService: SyncBackend {
             },
             swipedIDs: swipes.map(\.target_id),
             blockedIDs: blocks.map(\.blocked_id),
+            matchedIDs: matches.map { $0.a == userID ? $0.b : $0.a },
             likedMeCount: likedMeCount,
             messages: messageRows.map {
                 GroupMessage(id: $0.id, groupID: $0.group_id, senderID: $0.sender_id,
